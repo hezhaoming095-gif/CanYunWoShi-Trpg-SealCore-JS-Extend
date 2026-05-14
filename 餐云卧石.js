@@ -6,6 +6,8 @@
 // @timestamp    1747100000
 // @diceRequireVer 1.4.0
 // @license      MIT
+// @homepageURL  https://github.com/hezhaoming095-gif/CanYunWoShi-Trpg-SealCore-JS-Extend
+// @updateUrl    https://raw.githubusercontent.com/hezhaoming095-gif/CanYunWoShi-Trpg-SealCore-JS-Extend/main/餐云卧石.js
 // ==/UserScript==
 
 // =============================================
@@ -66,6 +68,15 @@ var template = {
     "功法": 1, "导航": 5, "表演": 5, "查阅资料": 25,
     "妙手": 5, "侦查": 25, "潜行": 10, "游泳": 25,
     "投掷": 25, "追踪": 10,
+    "攀爬": 40, "指挥": 5, "搏斗": 25, "擒抱": 25,
+    "躲藏": 10, "跳跃": 25, "精细操作": 5, "礼仪": 5,
+    "武术": 1, "医学": 5, "教导": 10, "博弈": 0,
+    "议价": 5, "爆破": 1, "精神治疗": 1, "读写能力": 0,
+    "战术": 1, "能量放射": 0,
+    "知识:历史": 5, "知识:见闻": 5,
+    "科学:天文学": 1, "科学:生物学": 1, "科学:物理学": 1,
+    "维修:法器维修": 15, "维修:机械维修": 15, "维修:电子维修": 15,
+    "骑术:骑马": 1, "骑术:骑龙": 1, "骑术:骑猫头鹰": 1,
     "自定义1": 1, "自定义2": 1, "自定义3": 1
   },
 
@@ -242,6 +253,41 @@ if (!seal.ext.find('cyws')) {
   ];
 
   // ──────────────────────────────
+  // 技能默认值表（来源：餐云卧石角色卡ver1.3 + BRP修仙者模板）
+  // 当角色卡ChVars中无对应技能时，.ra 等命令回退到此表取值
+  // ──────────────────────────────
+
+  var SKILL_DEFAULTS = {
+    // CYWS核心技能
+    '飞行': 5, '卜卦': 1, '炼丹': 30, '炼器': 5, '符道': 10,
+    '阵道': 5, '感知': 10, '巫蛊': 1, '杂学': 20, '语言': 0,
+    '邪术': 1, '地位': 5, '御兽': 5, '传音': 10, '医术': 5,
+    '聆听': 5, '通灵': 1, '灵力控制': 0, '掩护': 10,
+    '战斗:体': 30, '战斗:器': 30, '战斗:灵': 20,
+    '艺术:乐理': 1, '艺术:丹青': 1, '艺术:其他': 1,
+    '庖厨': 5, '幻术': 1, '估价': 15, '谈判': 5, '话术': 5,
+    '说服': 5, '伪装': 1, '闪避': 0, '急救': 30, '洞察': 5,
+    '知识:草药学': 5, '知识:神话学': 5, '知识:其他': 5,
+    '功法': 1, '导航': 5, '表演': 5, '查阅资料': 25,
+    '妙手': 5, '侦查': 25, '潜行': 10, '游泳': 25,
+    '投掷': 25, '追踪': 10,
+    // BRP通用技能（修仙者模板）
+    '攀爬': 40, '指挥': 5, '搏斗': 25, '擒抱': 25,
+    '躲藏': 10, '跳跃': 25, '精细操作': 5, '礼仪': 5,
+    '武术': 1, '医学': 5, '教导': 10, '博弈': 0,
+    '议价': 5, '爆破': 1, '精神治疗': 1, '读写能力': 0,
+    '战术': 1, '能量放射': 0,
+    // 知识/科学类
+    '知识:历史': 5, '知识:见闻': 5,
+    '科学:天文学': 1, '科学:生物学': 1, '科学:物理学': 1,
+    // 维修/骑术类
+    '维修:法器维修': 15, '维修:机械维修': 15, '维修:电子维修': 15,
+    '骑术:骑马': 1, '骑术:骑龙': 1, '骑术:骑猫头鹰': 1,
+    // 自定义
+    '自定义1': 1, '自定义2': 1, '自定义3': 1
+  };
+
+  // ──────────────────────────────
   // 辅助函数
   // ──────────────────────────────
 
@@ -379,6 +425,36 @@ if (!seal.ext.find('cyws')) {
   }
   function setMarkers(ctx, arr) {
     storageSetJSON(charKey(ctx, 'markers'), arr);
+  }
+
+  // NPC存储辅助（按群隔离，KP共用）
+  function getNpcs(ctx) {
+    var gid = ctx.group ? ctx.group.groupId : 'private';
+    return storageGetJSON('npcs_' + gid, {});
+  }
+  function setNpcs(ctx, npcs) {
+    var gid = ctx.group ? ctx.group.groupId : 'private';
+    storageSetJSON('npcs_' + gid, npcs);
+  }
+
+  // NPC属性解析：支持 力量50 和 DB=+1D4 两种格式
+  function parseNpcStats(text) {
+    var stats = {};
+    var tokens = text.split(/\s+/).filter(function(t) { return t.length > 0; });
+    for (var i = 0; i < tokens.length; i++) {
+      var t = tokens[i];
+      var eqIdx = t.indexOf('=');
+      if (eqIdx > 0) {
+        stats[t.substring(0, eqIdx)] = t.substring(eqIdx + 1);
+        continue;
+      }
+      var numMatch = t.match(/^(.+)(\d+)$/);
+      if (numMatch && numMatch[1].length > 0) {
+        stats[numMatch[1]] = parseInt(numMatch[2], 10);
+        continue;
+      }
+    }
+    return stats;
   }
 
   // 别名反查
@@ -655,11 +731,13 @@ if (!seal.ext.find('cyws')) {
     + '  → 大成功=1 / 特殊成功≤技能/5 / 困难成功≤技能/2\n'
     + '  → 成功≤技能 / 失败>技能 / 大失败=100\n'
     + '  → 特殊成功和大成功自动标记成长\n'
-    + '  → 例：.ra 闪避  .ra 战斗:器\n'
+    + '  → 手动指定技能值：.ra <技能名> <数值> 或 .ra <数值> <技能名>\n'
+    + '  → 例：.ra 闪避  .ra 战斗:器  .ra 闪避 50  .ra 50 闪避\n'
     + '\n'
     + '.rc <属性名>           属性检定\n'
     + '  → 用属性值作为成功率（力量80即80%）\n'
-    + '  → 例：.rc 力量  .rc 意志\n'
+    + '  → 手动指定属性值：.rc <属性名> <数值> 或 .rc <数值> <属性名>\n'
+    + '  → 例：.rc 力量  .rc 意志  .rc 力量 80\n'
     + '\n'
     + '.功法 <模式> <技能名>   功法检定\n'
     + '  → 模式：攻击（武器骰翻倍）/ 防御（抵消15伤害）/ 干扰（附带攻击）\n'
@@ -677,7 +755,8 @@ if (!seal.ext.find('cyws')) {
     + '  → 自动读取武器伤害+DB+ADB\n'
     + '  → 灵气>HP时自动附加ADB\n'
     + '  → 大成功时武器伤害骰取最大值（DB/ADB不翻倍）\n'
-    + '  → 例：.攻击  .攻击 战斗:器\n'
+    + '  → 手动指定技能值：.攻击 <技能名> <数值> 或 .攻击 <数值>\n'
+    + '  → 例：.攻击  .攻击 战斗:器  .攻击 战斗:器 60\n'
     + '\n'
     + '.受伤 <数值>           扣减HP\n'
     + '  → 自动减去护甲值\n'
@@ -746,9 +825,29 @@ if (!seal.ext.find('cyws')) {
     + '  → 例：.灵根查询 金  .种族查询 鬼修  .职业查询 兵修\n'
     + '\n'
     + '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    + '🎭 NPC管理（KP专用）\n'
+    + '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    + '.npc add <名称> <属性值...>  创建NPC\n'
+    + '  → 例：.npc add 小兵A 力量50 体质40 闪避30 HP10 护甲2\n'
+    + '  → DB/ADB用=号：.npc add BossA 力量80 HP20 DB=+1D6\n'
+    + '.npc <名称> ra <技能> [数值]  NPC技能检定\n'
+    + '.npc <名称> 攻击 [技能] [数值] NPC攻击\n'
+    + '.npc <名称> 受伤 <数值>        NPC受伤\n'
+    + '.npc <名称> hp <+/-数值>       NPC HP增减\n'
+    + '.npc <名称> 灵气 <+/-数值>     NPC灵气增减\n'
+    + '.npc <名称> 武器 <名> <公式>   NPC武器\n'
+    + '.npc <名称> st                  查看NPC属性\n'
+    + '.npc <名称> 标记 <+名/-名>     NPC状态标记\n'
+    + '.npc <名称> del                 删除NPC\n'
+    + '.npc list                       列出所有NPC\n'
+    + '.npc clear                      清空所有NPC\n'
+    + '\n'
+    + '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
     + '💡 提示\n'
     + '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
     + '· 技能检定用 .ra 而非 .r（.r是核心命令，无法覆盖）\n'
+    + '· KP可使用 .npc 管理NPC，无需切换角色卡\n'
+    + '· 所有检定命令支持手动指定数值：.ra 闪避 50 / .攻击 60\n'
     + '· 切换房规：.set cyws  |  切回COC：.set coc\n'
     + '· 名片同步：.sn（一次性）或 .sn auto（自动同步）\n'
     + '· 任何指令加 help 可查看帮助，如 .st help';
@@ -805,6 +904,17 @@ if (!seal.ext.find('cyws')) {
     var r3 = seal.vars.intGet(ctx, '语言');
     if (!r3[1]) setInt(ctx, '语言', getInt(ctx, '智力', 0));
 
+    // 写入技能默认初始值（仅角色卡中不存在的技能）
+    var defaultWritten = [];
+    for (var sk in SKILL_DEFAULTS) {
+      if (!SKILL_DEFAULTS.hasOwnProperty(sk)) continue;
+      var chk = seal.vars.intGet(ctx, sk);
+      if (!chk[1]) {
+        setInt(ctx, sk, SKILL_DEFAULTS[sk]);
+        defaultWritten.push(sk);
+      }
+    }
+
     // 鬼修特殊处理
     var race = getStr(ctx, '种族', '人族');
     if (race === '鬼修') {
@@ -851,6 +961,9 @@ if (!seal.ext.find('cyws')) {
     output += '\n· 闪避 = ⌊敏捷/5⌋ = ' + getInt(ctx, '闪避', 0);
     output += '\n· 灵力控制 = ⌊意志/2⌋ = ' + getInt(ctx, '灵力控制', 0);
     output += '\n· 语言 = 智力 = ' + getInt(ctx, '语言', 0);
+    if (defaultWritten.length > 0) {
+      output += '\n· 已写入' + defaultWritten.length + '项技能默认初始值（未加点技能也可用.ra检定）';
+    }
 
     if (parsed.profession && PROFESSIONS[parsed.profession] && PROFESSIONS[parsed.profession].spell) {
       var profData = PROFESSIONS[parsed.profession];
@@ -869,25 +982,48 @@ if (!seal.ext.find('cyws')) {
   // 5.2 .ra 命令
   var cmdRa = seal.ext.newCmdItemInfo();
   cmdRa.name = 'ra';
-  cmdRa.help = '🎲 .ra <技能名> — 技能检定\n\n掷1D100，与技能值比较判定成功等级：\n· 大成功=1 / 特殊成功≤技能/5 / 困难成功≤技能/2\n· 成功≤技能 / 失败>技能 / 大失败=100\n\n特殊成功和大成功自动获得成长标记。\n\n例：.ra 闪避  .ra 战斗:器  .ra 灵力控制';
+  cmdRa.help = '🎲 .ra <技能名> — 技能检定\n\n掷1D100，与技能值比较判定成功等级：\n· 大成功=1 / 特殊成功≤技能/5 / 困难成功≤技能/2\n· 成功≤技能 / 失败>技能 / 大失败=100\n\n特殊成功和大成功自动获得成长标记。\n支持手动指定技能值：.ra <技能名> <数值> 或 .ra <数值> <技能名>\n\n例：.ra 闪避  .ra 战斗:器  .ra 闪避 50  .ra 50 闪避';
   cmdRa.solve = function(ctx, msg, cmdArgs) {
     if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
-    var skillName = cmdArgs.getArgN(1);
-    if (!skillName) {
-      seal.replyToSender(ctx, msg, '用法: .ra <技能名>');
+    var arg1 = cmdArgs.getArgN(1);
+    if (!arg1) {
+      seal.replyToSender(ctx, msg, '用法: .ra <技能名> [数值]  或  .ra <数值> <技能名>');
       return seal.ext.newCmdExecuteResult(true);
     }
+    var arg2 = cmdArgs.getArgN(2);
+    var skillName, manualValue;
+    var arg1IsNum = !isNaN(parseInt(arg1, 10)) && String(parseInt(arg1, 10)) === arg1;
 
-    var skillValue = getInt(ctx, skillName, -1);
-    if (skillValue < 0) {
-      // 尝试alias解析
-      var resolved = resolveAttrName(skillName);
-      if (resolved !== skillName) skillValue = getInt(ctx, resolved, -1);
+    if (arg1IsNum && arg2) {
+      manualValue = parseInt(arg1, 10);
+      skillName = arg2;
+    } else if (arg2 && !isNaN(parseInt(arg2, 10)) && String(parseInt(arg2, 10)) === arg2) {
+      skillName = arg1;
+      manualValue = parseInt(arg2, 10);
+    } else {
+      skillName = arg1;
+      manualValue = null;
+    }
+
+    var resolved = resolveAttrName(skillName);
+    var lookupName = (resolved !== skillName) ? resolved : skillName;
+    var skillValue;
+    var isManual = false;
+
+    if (manualValue !== null) {
+      skillValue = manualValue;
+      skillName = lookupName;
+      isManual = true;
+    } else {
+      skillValue = getInt(ctx, lookupName, -1);
+      if (skillValue < 0 && SKILL_DEFAULTS.hasOwnProperty(lookupName)) {
+        skillValue = SKILL_DEFAULTS[lookupName];
+      }
       if (skillValue < 0) {
-        seal.replyToSender(ctx, msg, '⚠️ 未找到技能: ' + skillName);
+        seal.replyToSender(ctx, msg, '⚠️ 未找到技能: ' + skillName + '\n可手动指定数值: .ra ' + skillName + ' <数值>');
         return seal.ext.newCmdExecuteResult(true);
       }
-      skillName = resolved;
+      skillName = lookupName;
     }
 
     var rollResult = roll(ctx, '1d100');
@@ -898,13 +1034,13 @@ if (!seal.ext.find('cyws')) {
 
     var output = '🎲 餐云卧石技能检定\n━━━━━━━━━━━━━━━\n';
     output += '角色：' + ctx.player.name + '\n';
-    output += '技能：' + skillName + ' (' + skillValue + '%)\n';
+    output += '技能：' + skillName + ' (' + skillValue + '%)' + (isManual ? ' [手动]' : '') + '\n';
     output += '成功/困难/特殊：' + skillValue + '/' + hardVal + '/' + specialVal + '\n';
     output += '━━━━━━━━━━━━━━━\n';
     output += '🎲 1D100 = ' + rollResult + '\n';
     output += (levelEmoji[judge.level] || '') + ' ' + judge.level;
 
-    if (judge.canGrow) {
+    if (judge.canGrow && !isManual) {
       output += '\n[成长标记 ✓]';
       var meta = getMeta(ctx);
       if (!meta.growthMarks) meta.growthMarks = {};
@@ -932,21 +1068,39 @@ if (!seal.ext.find('cyws')) {
   // 5.3 .rc 命令
   var cmdRc = seal.ext.newCmdItemInfo();
   cmdRc.name = 'rc';
-  cmdRc.help = '🎲 .rc <属性名> — 属性检定\n\n用属性值作为成功率进行D100检定（力量80即80%成功率）。\n成功等级与.ra相同。\n\n例：.rc 力量  .rc 意志  .rc 灵气';
+  cmdRc.help = '🎲 .rc <属性名> — 属性检定\n\n用属性值作为成功率进行D100检定（力量80即80%成功率）。\n成功等级与.ra相同。\n支持手动指定属性值：.rc <属性名> <数值> 或 .rc <数值> <属性名>\n\n例：.rc 力量  .rc 意志  .rc 力量 80  .rc 80 力量';
   cmdRc.solve = function(ctx, msg, cmdArgs) {
     if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
-    var attrName = cmdArgs.getArgN(1);
-    if (!attrName) {
-      seal.replyToSender(ctx, msg, '用法: .rc <属性名>');
+    var arg1 = cmdArgs.getArgN(1);
+    if (!arg1) {
+      seal.replyToSender(ctx, msg, '用法: .rc <属性名> [数值]  或  .rc <数值> <属性名>');
       return seal.ext.newCmdExecuteResult(true);
     }
+    var arg2 = cmdArgs.getArgN(2);
+    var attrName, attrValue, isManual;
+    var arg1IsNum = !isNaN(parseInt(arg1, 10)) && String(parseInt(arg1, 10)) === arg1;
+
+    if (arg1IsNum && arg2) {
+      attrValue = parseInt(arg1, 10);
+      attrName = arg2;
+      isManual = true;
+    } else if (arg2 && !isNaN(parseInt(arg2, 10)) && String(parseInt(arg2, 10)) === arg2) {
+      attrName = arg1;
+      attrValue = parseInt(arg2, 10);
+      isManual = true;
+    } else {
+      attrName = arg1;
+      attrValue = null;
+      isManual = false;
+    }
+
     var resolved = resolveAttrName(attrName);
-    var attrValue = getInt(ctx, resolved, 0);
+    if (attrValue === null) attrValue = getInt(ctx, resolved, 0);
     var rollResult = roll(ctx, '1d100');
     var judge = judgeSuccess(rollResult, attrValue);
     var levelEmoji = { '大成功': '✨', '特殊成功': '✨', '困难成功': '✅', '成功': '✅', '失败': '❌', '大失败': '💀' };
 
-    var output = '🎲 属性检定：' + resolved + ' (' + attrValue + '%)\n';
+    var output = '🎲 属性检定：' + resolved + ' (' + attrValue + '%)' + (isManual ? ' [手动]' : '') + '\n';
     output += '🎲 1D100 = ' + rollResult + ' → ' + (levelEmoji[judge.level] || '') + ' ' + judge.level;
     seal.replyToSender(ctx, msg, output);
     return seal.ext.newCmdExecuteResult(true);
@@ -1047,16 +1201,50 @@ if (!seal.ext.find('cyws')) {
   // 5.7 .攻击 命令
   var cmdAttack = seal.ext.newCmdItemInfo();
   cmdAttack.name = '攻击';
-  cmdAttack.help = '⚔️ .攻击 [技能名] — 攻击检定+伤害计算\n\n先做技能检定(1D100)，命中后自动计算伤害：\n· 武器伤害骰（从.st录入的武器读取）\n· + DB（力量+体型查表）\n· + ADB（仅灵气>HP时附加）\n\n大成功：武器伤害骰取最大值（DB/ADB不翻倍）\n大失败：提示由KP裁定意外效果\n\n默认技能：战斗:器\n例：.攻击  .攻击 战斗:体  .攻击 战斗:灵';
+  cmdAttack.help = '⚔️ .攻击 [技能名] — 攻击检定+伤害计算\n\n先做技能检定(1D100)，命中后自动计算伤害：\n· 武器伤害骰（从.st录入的武器读取）\n· + DB（力量+体型查表）\n· + ADB（仅灵气>HP时附加）\n\n大成功：武器伤害骰取最大值（DB/ADB不翻倍）\n大失败：提示由KP裁定意外效果\n\n默认技能：战斗:器\n支持手动指定技能值：.攻击 <技能名> <数值>\n例：.攻击  .攻击 战斗:体  .攻击 战斗:器 60  .攻击 60';
   cmdAttack.solve = function(ctx, msg, cmdArgs) {
-    var skillName = cmdArgs.getArgN(1) || '战斗:器';
+    var arg1 = cmdArgs.getArgN(1) || '';
+    var arg2 = cmdArgs.getArgN(2) || '';
+    var skillName, manualValue, isManual;
+    var arg1IsNum = !isNaN(parseInt(arg1, 10)) && String(parseInt(arg1, 10)) === arg1 && arg1 !== '';
+
+    if (arg1IsNum && !arg2) {
+      // .攻击 60 → 默认技能+手动值
+      skillName = '战斗:器';
+      manualValue = parseInt(arg1, 10);
+      isManual = true;
+    } else if (arg1IsNum && arg2) {
+      // .攻击 60 战斗:器 → value=60, skill=战斗:器
+      manualValue = parseInt(arg1, 10);
+      skillName = arg2;
+      isManual = true;
+    } else if (arg2 && !isNaN(parseInt(arg2, 10)) && String(parseInt(arg2, 10)) === arg2) {
+      // .攻击 战斗:器 60 → skill=战斗:器, value=60
+      skillName = arg1;
+      manualValue = parseInt(arg2, 10);
+      isManual = true;
+    } else {
+      skillName = arg1 || '战斗:器';
+      manualValue = null;
+      isManual = false;
+    }
+
     var resolvedSkill = resolveAttrName(skillName);
-    var skillValue = getInt(ctx, resolvedSkill, 0);
+    var skillValue;
+    if (manualValue !== null) {
+      skillValue = manualValue;
+    } else {
+      skillValue = getInt(ctx, resolvedSkill, -1);
+      if (skillValue < 0 && SKILL_DEFAULTS.hasOwnProperty(resolvedSkill)) {
+        skillValue = SKILL_DEFAULTS[resolvedSkill];
+      }
+      if (skillValue < 0) skillValue = 0;
+    }
     var rollResult = roll(ctx, '1d100');
     var judge = judgeSuccess(rollResult, skillValue);
 
     var output = '⚔️ 攻击检定\n━━━━━━━━━━━━━━━\n';
-    output += '角色：' + ctx.player.name + ' | 技能：' + resolvedSkill + ' (' + skillValue + '%)\n';
+    output += '角色：' + ctx.player.name + ' | 技能：' + resolvedSkill + ' (' + skillValue + '%)' + (isManual ? ' [手动]' : '') + '\n';
     output += '🎲 1D100 = ' + rollResult + ' → ' + judge.level + '\n';
 
     if (judge.level === '失败' || judge.level === '大失败') {
@@ -1251,8 +1439,15 @@ if (!seal.ext.find('cyws')) {
       return seal.ext.newCmdExecuteResult(true);
     }
     var resolvedSkill = resolveAttrName(skillName);
-    var skillValue = getInt(ctx, resolvedSkill, 0);
+    var skillValue = getInt(ctx, resolvedSkill, -1);
+    if (skillValue < 0 && SKILL_DEFAULTS.hasOwnProperty(resolvedSkill)) {
+      skillValue = SKILL_DEFAULTS[resolvedSkill];
+    }
+    if (skillValue < 0) skillValue = 0;
     var maValue = getInt(ctx, '功法', 0);
+    if (maValue === 0 && SKILL_DEFAULTS.hasOwnProperty('功法')) {
+      maValue = SKILL_DEFAULTS['功法'];
+    }
     var rollResult = roll(ctx, '1d100');
     var judge = judgeSuccess(rollResult, skillValue);
 
@@ -1456,7 +1651,11 @@ if (!seal.ext.find('cyws')) {
       return seal.ext.newCmdExecuteResult(true);
     }
     var resolvedSkill = resolveAttrName(skillName);
-    var skillValue = getInt(ctx, resolvedSkill, 0);
+    var skillValue = getInt(ctx, resolvedSkill, -1);
+    if (skillValue < 0 && SKILL_DEFAULTS.hasOwnProperty(resolvedSkill)) {
+      skillValue = SKILL_DEFAULTS[resolvedSkill];
+    }
+    if (skillValue < 0) skillValue = 0;
     var rollResult = roll(ctx, '1d100');
     var bonus = roll(ctx, '1d10');
     var success = rollResult > skillValue;
@@ -1669,5 +1868,335 @@ if (!seal.ext.find('cyws')) {
     seal.replyToSender(ctx, msg, output);
     return seal.ext.newCmdExecuteResult(true);
   });
+
+  // 5.19 .npc 命令（KP NPC管理）
+  var cmdNpc = seal.ext.newCmdItemInfo();
+  cmdNpc.name = 'npc';
+  cmdNpc.help = '🎭 .npc — NPC管理（KP专用）\n\n创建和管理NPC，无需切换角色卡即可为NPC检定/攻击/受伤。\n\n创建/更新：.npc add <名称> <属性值...>\n  例：.npc add 小兵A 力量50 体质40 闪避30 HP10 最大HP10 护甲2\n  DB/ADB等用=号：.npc add BossA 力量80 体型70 HP20 DB=+1D6 ADB=2D4\n\n检定：.npc <名称> ra <技能> [数值]\n  例：.npc 小兵A ra 闪避\n  例：.npc 小兵A ra 闪避 30（手动指定技能值）\n\n攻击：.npc <名称> 攻击 [技能] [数值]\n  例：.npc 小兵A 攻击 战斗:体\n\n受伤：.npc <名称> 受伤 <数值>\n  例：.npc 小兵A 受伤 8\n\nHP：.npc <名称> hp <+/-数值>\n灵气：.npc <名称> 灵气 <+/-数值>\n武器：.npc <名称> 武器 <武器名> <公式>\n  例：.npc 小兵A 武器 大刀 1d8+1d4\n\n查看：.npc <名称> st\n标记：.npc <名称> 标记 <+名称/-名称>\n删除：.npc <名称> del\n列表：.npc list\n清空：.npc clear\n帮助：.npc help';
+  cmdNpc.solve = function(ctx, msg, cmdArgs) {
+    var text = cmdArgs.getRestArgsFrom(1);
+    if (!text || text.trim() === '') {
+      seal.replyToSender(ctx, msg, cmdNpc.help);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    var tokens = text.trim().split(/\s+/);
+    var first = tokens[0];
+
+    // 全局子命令
+    if (first === 'help' || first === '帮助') {
+      seal.replyToSender(ctx, msg, cmdNpc.help);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    if (first === 'list' || first === '列表') {
+      var npcsL = getNpcs(ctx);
+      var namesL = Object.keys(npcsL);
+      if (namesL.length === 0) {
+        seal.replyToSender(ctx, msg, '🎭 当前群无NPC');
+      } else {
+        var outL = '🎭 NPC列表\n━━━━━━━━━━━━━━━\n';
+        for (var li = 0; li < namesL.length; li++) {
+          var npcL = npcsL[namesL[li]];
+          var hpL = npcL.stats['HP'] || 0;
+          var maxHpL = npcL.stats['最大HP'] || hpL;
+          outL += namesL[li] + ' HP:' + hpL + '/' + maxHpL;
+          if (npcL.markers && npcL.markers.length > 0) {
+            outL += ' ' + npcL.markers.map(function(m) { return '<' + m + '>'; }).join('');
+          }
+          outL += '\n';
+        }
+        seal.replyToSender(ctx, msg, outL);
+      }
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    if (first === 'clear' || first === '清空') {
+      setNpcs(ctx, {});
+      seal.replyToSender(ctx, msg, '✓ 已清空所有NPC');
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    // add 子命令
+    if (first === 'add' || first === '添加') {
+      if (tokens.length < 2) {
+        seal.replyToSender(ctx, msg, '用法: .npc add <名称> <属性值...>\n例: .npc add 小兵A 力量50 体质40 闪避30 HP10 护甲2');
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      var addName = tokens[1];
+      var statText = tokens.slice(2).join(' ');
+      var addStats = parseNpcStats(statText);
+      var npcsA = getNpcs(ctx);
+      if (npcsA[addName]) {
+        for (var ak in addStats) { if (addStats.hasOwnProperty(ak)) npcsA[addName].stats[ak] = addStats[ak]; }
+      } else {
+        npcsA[addName] = { stats: addStats, weapons: {}, markers: [] };
+      }
+      setNpcs(ctx, npcsA);
+      var outA = '✓ NPC已' + (npcsA[addName] ? '更新' : '创建') + '：' + addName + '\n━━━━━━━━━━━━━━━\n';
+      var statKeys = Object.keys(addStats);
+      for (var si = 0; si < statKeys.length; si++) {
+        outA += statKeys[si] + ':' + addStats[statKeys[si]] + ' ';
+        if ((si + 1) % 5 === 0) outA += '\n';
+      }
+      seal.replyToSender(ctx, msg, outA);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    // NPC名称 + 动作
+    var npcName = first;
+    var action = tokens[1];
+    var npcs = getNpcs(ctx);
+    var npc = npcs[npcName];
+
+    if (!npc) {
+      seal.replyToSender(ctx, msg, '⚠️ 未找到NPC: ' + npcName + '\n使用 .npc add ' + npcName + ' <属性值...> 创建');
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    if (!action) action = 'st';
+
+    // --- NPC技能检定 ---
+    if (action === 'ra') {
+      var raSkill = tokens[2] || '';
+      var raManual = tokens[3] ? parseInt(tokens[3], 10) : NaN;
+      if (!raSkill) {
+        seal.replyToSender(ctx, msg, '用法: .npc ' + npcName + ' ra <技能> [数值]');
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      var raResolved = resolveAttrName(raSkill);
+      var raValue = raManual;
+      var raIsManual = false;
+      if (isNaN(raValue)) {
+        raValue = npc.stats[raResolved];
+        if (raValue === undefined) raValue = npc.stats[raSkill];
+        if (raValue === undefined && SKILL_DEFAULTS.hasOwnProperty(raResolved)) raValue = SKILL_DEFAULTS[raResolved];
+        if (raValue === undefined) raValue = 0;
+      } else {
+        raIsManual = true;
+      }
+      var raRoll = roll(ctx, '1d100');
+      var raJudge = judgeSuccess(raRoll, raValue);
+      var raHard = Math.floor(raValue / 2);
+      var raSpecial = Math.floor(raValue / 5);
+      var raEmoji = { '大成功': '✨', '特殊成功': '✨', '困难成功': '✅', '成功': '✅', '失败': '❌', '大失败': '💀' };
+      var outRa = '🎲 NPC技能检定\n━━━━━━━━━━━━━━━\n';
+      outRa += 'NPC：' + npcName + '\n';
+      outRa += '技能：' + raResolved + ' (' + raValue + '%)' + (raIsManual ? ' [手动]' : '') + '\n';
+      outRa += '成功/困难/特殊：' + raValue + '/' + raHard + '/' + raSpecial + '\n';
+      outRa += '━━━━━━━━━━━━━━━\n';
+      outRa += '🎲 1D100 = ' + raRoll + '\n';
+      outRa += (raEmoji[raJudge.level] || '') + ' ' + raJudge.level;
+      seal.replyToSender(ctx, msg, outRa);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    // --- NPC攻击 ---
+    if (action === '攻击') {
+      var atkSkill = tokens[2] || '战斗:体';
+      var atkManual = tokens[3] ? parseInt(tokens[3], 10) : NaN;
+      var atkResolved = resolveAttrName(atkSkill);
+      var atkValue, atkIsManual;
+      if (!isNaN(atkManual)) {
+        atkValue = atkManual;
+        atkIsManual = true;
+      } else {
+        atkValue = npc.stats[atkResolved];
+        if (atkValue === undefined) atkValue = npc.stats[atkSkill];
+        if (atkValue === undefined && SKILL_DEFAULTS.hasOwnProperty(atkResolved)) atkValue = SKILL_DEFAULTS[atkResolved];
+        if (atkValue === undefined) atkValue = 0;
+        atkIsManual = false;
+      }
+      var atkRoll = roll(ctx, '1d100');
+      var atkJudge = judgeSuccess(atkRoll, atkValue);
+      var outAtk = '⚔️ NPC攻击检定\n━━━━━━━━━━━━━━━\n';
+      outAtk += 'NPC：' + npcName + ' | 技能：' + atkResolved + ' (' + atkValue + '%)' + (atkIsManual ? ' [手动]' : '') + '\n';
+      outAtk += '🎲 1D100 = ' + atkRoll + ' → ' + atkJudge.level + '\n';
+
+      if (atkJudge.level === '失败' || atkJudge.level === '大失败') {
+        outAtk += '━━━━━━━━━━━━━━━\n攻击未命中';
+        if (atkJudge.level === '大失败') outAtk += '\n💀 大失败！';
+        seal.replyToSender(ctx, msg, outAtk);
+        return seal.ext.newCmdExecuteResult(true);
+      }
+
+      outAtk += '━━━━━━━━━━━━━━━\n伤害计算：\n';
+      var npcWeaponDmg = 0, npcWeaponDetail = '';
+      var npcWeaponKeys = Object.keys(npc.weapons || {});
+      var npcIsMax = (atkJudge.level === '大成功');
+
+      if (npcWeaponKeys.length > 0) {
+        var nwName = npcWeaponKeys[0];
+        var nwFormula = npc.weapons[nwName];
+        if (npcIsMax) {
+          var nwMax = maximizeDiceExpr(nwFormula);
+          npcWeaponDmg = nwMax.total;
+          npcWeaponDetail = '武器[' + nwName + ']: ' + nwFormula + ' → MAX ' + nwMax.detail + ' = ' + npcWeaponDmg;
+        } else {
+          var nwResult = rollDetailed(ctx, nwFormula);
+          npcWeaponDmg = nwResult.total;
+          npcWeaponDetail = '武器[' + nwName + ']: ' + nwFormula + ' → ' + nwResult.detail + ' = ' + npcWeaponDmg;
+        }
+      }
+
+      var npcDbStr = String(npc.stats['DB'] || '0');
+      var npcDbDmg = 0, npcDbDetail = '';
+      if (npcDbStr === '0') {
+        npcDbDmg = 0; npcDbDetail = '0';
+      } else if (npcIsMax) {
+        var npcMaxDb = maximizeDiceExpr(npcDbStr);
+        npcDbDmg = npcMaxDb.total; npcDbDetail = 'MAX ' + npcMaxDb.detail;
+      } else {
+        var npcDbResult = rollDetailed(ctx, npcDbStr);
+        npcDbDmg = npcDbResult.total; npcDbDetail = npcDbResult.detail;
+      }
+
+      var npcQi = Number(npc.stats['灵气'] || 0);
+      var npcHp = Number(npc.stats['HP'] || 0);
+      var npcAdbDmg = 0, npcAdbDetail = '';
+      var npcAdbOn = npcQi > npcHp;
+
+      if (npcAdbOn) {
+        var npcAdbStr = String(npc.stats['ADB'] || '0');
+        if (npcAdbStr === '0') {
+          npcAdbDmg = 0; npcAdbDetail = '0';
+        } else {
+          var npcAdbResult = rollDetailed(ctx, npcAdbStr);
+          npcAdbDmg = npcAdbResult.total; npcAdbDetail = npcAdbResult.detail;
+        }
+      }
+
+      if (npcWeaponDetail) outAtk += npcWeaponDetail + '\n';
+      outAtk += 'DB: ' + npcDbStr + ' → ' + npcDbDetail + ' = ' + npcDbDmg + '\n';
+      if (npcAdbOn) {
+        outAtk += 'ADB: ' + String(npc.stats['ADB'] || '0') + ' → ' + npcAdbDetail + ' = ' + npcAdbDmg + '\n';
+      }
+      var npcTotalDmg = npcWeaponDmg + npcDbDmg + npcAdbDmg;
+      outAtk += '━━━━━━━━━━━━━━━\n总伤害：' + npcTotalDmg;
+      if (npcIsMax) outAtk += '\n✨ 大成功！武器伤害骰已取最大值';
+      seal.replyToSender(ctx, msg, outAtk);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    // --- NPC受伤 ---
+    if (action === '受伤') {
+      var hurtDmg = Number(tokens[2]);
+      if (!hurtDmg) {
+        seal.replyToSender(ctx, msg, '用法: .npc ' + npcName + ' 受伤 <数值>');
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      var hurtArmor = Number(npc.stats['护甲'] || 0);
+      var hurtActual = Math.max(hurtDmg - hurtArmor, 0);
+      var hurtOldHp = Number(npc.stats['HP'] || 0);
+      npc.stats['HP'] = hurtOldHp - hurtActual;
+      setNpcs(ctx, npcs);
+      var outHurt = '💔 NPC受伤处理\n━━━━━━━━━━━━━━━\n';
+      outHurt += 'NPC：' + npcName + '\n';
+      outHurt += '原始伤害：' + hurtDmg + ' | 护甲：' + hurtArmor + ' | 实际伤害：' + hurtActual + '\n';
+      outHurt += 'HP：' + hurtOldHp + ' → ' + npc.stats['HP'];
+      if (npc.stats['HP'] <= 0) outHurt += '\n⚠️ NPC已倒下';
+      seal.replyToSender(ctx, msg, outHurt);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    // --- NPC HP增减 ---
+    if (action === 'hp') {
+      var hpVal = Number(tokens[2]);
+      if (isNaN(hpVal)) {
+        seal.replyToSender(ctx, msg, '用法: .npc ' + npcName + ' hp <+/-数值>');
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      var hpOld = Number(npc.stats['HP'] || 0);
+      npc.stats['HP'] = hpOld + hpVal;
+      setNpcs(ctx, npcs);
+      seal.replyToSender(ctx, msg, npcName + ' HP：' + hpOld + ' → ' + npc.stats['HP']);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    // --- NPC灵气增减 ---
+    if (action === '灵气') {
+      var qiVal = Number(tokens[2]);
+      if (isNaN(qiVal)) {
+        seal.replyToSender(ctx, msg, '用法: .npc ' + npcName + ' 灵气 <+/-数值>');
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      var qiOld = Number(npc.stats['灵气'] || 0);
+      npc.stats['灵气'] = qiOld + qiVal;
+      setNpcs(ctx, npcs);
+      seal.replyToSender(ctx, msg, npcName + ' 灵气：' + qiOld + ' → ' + npc.stats['灵气']);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    // --- NPC武器 ---
+    if (action === '武器') {
+      var wName = tokens[2];
+      var wFormula = tokens.slice(3).join(' ');
+      if (!wName || !wFormula) {
+        seal.replyToSender(ctx, msg, '用法: .npc ' + npcName + ' 武器 <名称> <公式>\n例: .npc ' + npcName + ' 武器 大刀 1d8+1d4');
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      npc.weapons = npc.weapons || {};
+      npc.weapons[wName] = wFormula;
+      setNpcs(ctx, npcs);
+      seal.replyToSender(ctx, msg, '✓ ' + npcName + ' 武器已设置：' + wName + ' (' + wFormula + ')');
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    // --- NPC查看属性 ---
+    if (action === 'st' || action === '状态') {
+      var outSt = '🎭 NPC：' + npcName + '\n━━━━━━━━━━━━━━━\n';
+      var stKeys = Object.keys(npc.stats);
+      for (var sti = 0; sti < stKeys.length; sti++) {
+        outSt += stKeys[sti] + ':' + npc.stats[stKeys[sti]] + ' ';
+        if ((sti + 1) % 5 === 0) outSt += '\n';
+      }
+      if (npc.weapons && Object.keys(npc.weapons).length > 0) {
+        outSt += '\n━━━━━━━━━━━━━━━\n武器：';
+        var stWKeys = Object.keys(npc.weapons);
+        for (var swi = 0; swi < stWKeys.length; swi++) {
+          outSt += stWKeys[swi] + '(' + npc.weapons[stWKeys[swi]] + ') ';
+        }
+      }
+      if (npc.markers && npc.markers.length > 0) {
+        outSt += '\n状态标记：' + npc.markers.map(function(m) { return '<' + m + '>'; }).join(' ');
+      }
+      seal.replyToSender(ctx, msg, outSt);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    // --- NPC删除 ---
+    if (action === 'del' || action === '删除') {
+      delete npcs[npcName];
+      setNpcs(ctx, npcs);
+      seal.replyToSender(ctx, msg, '✓ NPC已删除：' + npcName);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    // --- NPC标记 ---
+    if (action === '标记') {
+      var mkAction = tokens[2];
+      if (!mkAction) {
+        var mkList = npc.markers || [];
+        var mkStr = mkList.length > 0 ? mkList.map(function(m) { return '<' + m + '>'; }).join(' ') : '无';
+        seal.replyToSender(ctx, msg, npcName + ' 状态标记：' + mkStr);
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      npc.markers = npc.markers || [];
+      if (mkAction.startsWith('+')) {
+        npc.markers.push(mkAction.substring(1));
+      } else if (mkAction.startsWith('-')) {
+        var mkRemove = mkAction.substring(1);
+        npc.markers = npc.markers.filter(function(m) { return m !== mkRemove; });
+      }
+      setNpcs(ctx, npcs);
+      var mkStr2 = npc.markers.length > 0 ? npc.markers.map(function(m) { return '<' + m + '>'; }).join(' ') : '无';
+      seal.replyToSender(ctx, msg, npcName + ' 状态标记：' + mkStr2);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    seal.replyToSender(ctx, msg, '⚠️ 未知NPC操作: ' + action + '\n输入 .npc help 查看帮助');
+    return seal.ext.newCmdExecuteResult(true);
+  };
+  ext.cmdMap['npc'] = cmdNpc;
 
 } // end if (!seal.ext.find('cyws'))
