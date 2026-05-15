@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         餐云卧石
 // @author       Asa阿沙
-// @version      1.0.2
+// @version      1.0.4
 // @description  《餐云卧石》BRP修仙规则插件——制卡投掷、技能检定、战斗伤害、灵气管理、法术施放
-// @timestamp    1778824853
+// @timestamp    1778880118
 // @diceRequireVer 1.4.0
 // @license      MIT
 // @homepageURL  https://github.com/hezhaoming095-gif/CanYunWoShi-Trpg-SealCore-JS-Extend
@@ -18,8 +18,8 @@ var template = {
   name: "cyws",
   fullName: "餐云卧石",
   authors: ["Asa阿沙 "],
-  version: "1.0.2",
-  updatedTime: "20260515",
+  version: "1.0.3",
+  updatedTime: "20260516",
   templateVer: "1.0",
 
   setConfig: {
@@ -115,7 +115,7 @@ try {
 // =============================================
 
 if (!seal.ext.find('cyws')) {
-  var ext = seal.ext.new('cyws', 'Asa阿沙', '1.0.0');
+  var ext = seal.ext.new('cyws', 'Asa阿沙', '1.0.3');
   // ★ 必须显式设置autoActive=true：Go的bool默认值为false，
   // 不设置则扩展不会自动激活，.set cyws的relatedExt机制也无效
   ext.autoActive = true;
@@ -574,9 +574,104 @@ if (!seal.ext.find('cyws')) {
     return { level: '失败', canGrow: false };
   }
 
+  // 通用检定参数解析（.ra/.rc/.攻击 共用）
+  // 返回: { skillName, baseValue, bonus, isManual }
+  // skillName: 技能名（已 resolve），null 表示纯数值检定
+  // baseValue: 手动指定的基础值（null 表示从卡片读取）
+  // bonus: 临时加值/减值（如 +10 或 -5，0 表示无加值）
+  // isManual: 是否手动指定了基础值
+  function parseRaInput(cmdArgs) {
+    var rawArg = cmdArgs.getArgN(1) || '';
+    var arg2 = cmdArgs.getArgN(2) || '';
+    var result = { skillName: null, baseValue: null, bonus: 0, isManual: false };
+
+    // Step 1: 纯数值格式 .ra100
+    if (/^\d+$/.test(rawArg) && !arg2) {
+      result.baseValue = parseInt(rawArg, 10);
+      result.isManual = true;
+      return result;
+    }
+
+    // Step 2: 有空格多参数格式 .ra 侦查 50 / .ra 侦查+10 / .ra 50 侦查
+    if (arg2) {
+      var arg1IsNum = /^\d+$/.test(rawArg);
+      var arg2IsNum = /^\d+$/.test(arg2);
+      var arg2BonusMatch = arg2.match(/^([+-])(\d+)$/);
+
+      if (arg1IsNum) {
+        // .ra 50 侦查 → 数值+技能名
+        result.baseValue = parseInt(rawArg, 10);
+        result.skillName = resolveAttrName(arg2);
+        result.isManual = true;
+        return result;
+      }
+
+      if (arg2BonusMatch) {
+        // .ra 侦查 +10 或 .ra 侦查 -5
+        result.skillName = resolveAttrName(rawArg);
+        result.bonus = parseInt(arg2BonusMatch[1] + arg2BonusMatch[2], 10);
+        return result;
+      }
+
+      if (arg2IsNum) {
+        // .ra 侦查 50 → 技能名+数值
+        result.skillName = resolveAttrName(rawArg);
+        result.baseValue = parseInt(arg2, 10);
+        result.isManual = true;
+        return result;
+      }
+    }
+
+    // Step 3: 无空格紧凑格式 .ra侦查40 / .ra侦查+10
+    if (rawArg && !/^\d+$/.test(rawArg)) {
+      // 收集所有候选前缀（defaults键 + alias），按长度降序
+      var candidates = [];
+      var dk = Object.keys(template.defaults || {});
+      for (var di = 0; di < dk.length; di++) {
+        candidates.push({ prefix: dk[di], canonical: resolveAttrName(dk[di]) });
+      }
+      for (var canonical2 in template.alias) {
+        if (!template.alias.hasOwnProperty(canonical2)) continue;
+        var aliases2 = template.alias[canonical2];
+        for (var ai2 = 0; ai2 < aliases2.length; ai2++) {
+          candidates.push({ prefix: aliases2[ai2], canonical: canonical2 });
+        }
+      }
+      candidates.sort(function(a, b) { return b.prefix.length - a.prefix.length; });
+
+      for (var ci = 0; ci < candidates.length; ci++) {
+        var cand = candidates[ci];
+        if (rawArg.length > cand.prefix.length && rawArg.substring(0, cand.prefix.length).toLowerCase() === cand.prefix.toLowerCase()) {
+          var rest = rawArg.substring(cand.prefix.length);
+          // 增量格式: 侦查+10
+          var bonusM = rest.match(/^([+-])(\d+)$/);
+          if (bonusM) {
+            result.skillName = cand.canonical;
+            result.bonus = parseInt(bonusM[1] + bonusM[2], 10);
+            return result;
+          }
+          // 绝对值格式: 侦查40
+          if (/^\d+$/.test(rest)) {
+            result.skillName = cand.canonical;
+            result.baseValue = parseInt(rest, 10);
+            result.isManual = true;
+            return result;
+          }
+        }
+      }
+    }
+
+    // Step 4: 仅技能名，从卡片读取
+    if (rawArg) {
+      result.skillName = resolveAttrName(rawArg);
+    }
+
+    return result;
+  }
+
   // 输入解析 v3
   function parseStInput(text) {
-    var result = { attrs: {}, increments: {}, spiritRoot: null, race: null, realm: null, profession: null, weapon: null };
+    var result = { attrs: {}, increments: {}, spiritRoot: null, race: null, realm: null, profession: null, weapon: null, unrecognized: [] };
     var tokens = text.split(/\s+/).filter(function(t) { return t.length > 0; });
     if (tokens.length === 0) return result;
 
@@ -666,7 +761,19 @@ if (!seal.ext.find('cyws')) {
       }
       if (matched) { idx++; continue; }
 
-      // 冒号属性名紧凑格式
+      // alias冒号数值格式（STR:60、CON:55 等，冒号仅作分隔符）
+      var aliasColonNumMatch = token.match(/^([a-zA-Z]+)[：:](\d+)$/);
+      if (aliasColonNumMatch) {
+        var acnPrefix = aliasColonNumMatch[1];
+        var acnVal = parseInt(aliasColonNumMatch[2], 10);
+        var acnResolved = resolveAttrName(acnPrefix);
+        if (acnResolved !== acnPrefix || (template.defaults && template.defaults.hasOwnProperty(acnPrefix))) {
+          result.attrs[acnResolved] = acnVal;
+          idx++; continue;
+        }
+      }
+
+      // 冒号属性名紧凑格式（战斗:器60、知识:草药学5 等，冒号是属性名的一部分）
       var colonMatch = token.match(/^(.+[:：].+?)[+]?(\d+)$/);
       if (colonMatch) {
         var cname = colonMatch[1].replace(/：/g, ':');
@@ -713,10 +820,17 @@ if (!seal.ext.find('cyws')) {
         if (!spiritRoots.has(sname) && !races.has(sname) && !realms.has(sname)) {
           if (sIsInc) { result.increments[resolveAttrName(sname)] = sval; }
           else { result.attrs[resolveAttrName(sname)] = sval; }
+          // 非预设属性提示
+          var sResolved = resolveAttrName(sname);
+          if (!(template.defaults && template.defaults.hasOwnProperty(sResolved)) && sResolved === sname) {
+            result.unrecognized.push(sname + '(已录入为自定义属性)');
+          }
           idx++; continue;
         }
       }
 
+      // 所有规则均未匹配
+      result.unrecognized.push(token);
       idx++;
     }
     return result;
@@ -726,170 +840,116 @@ if (!seal.ext.find('cyws')) {
   // 命令实现
   // ──────────────────────────────
 
-  // 帮助文本
+  // 帮助文本（概览版）
   var HELP_TEXT = ''
-    + '🏔️ 餐云卧石 — BRP修仙规则插件 帮助\n'
-    + '《餐云卧石》是一款基于BRP规则的修仙题材TRPG。\n'
-    + '本插件自动化了制卡投掷、技能检定、战斗伤害、灵气管理、法术施放等流程。\n'
-    + '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
-    + '🚀 快速开始\n'
-    + '① .set cyws          切换房规为餐云卧石\n'
-    + '② .餐云 或 .制卡       投掷属性\n'
-    + '③ 在Excel角色卡中完成灵根/种族/技能等选择\n'
-    + '④ .pc new <角色名>    创建角色卡\n'
-    + '⑤ .st <属性值...>      一键录入（自动计算HP/PP/DB/ADB等）\n'
-    + '⑥ .sn 或 .sn auto     同步群名片\n'
-    + '⑦ .ra <技能名>        开始技能检定！\n'
+    + '🏔️ 餐云卧石 — BRP修仙规则插件\n'
+    + '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    + '🚀 快速上手\n'
+    + '① .set cyws           切换房规\n'
+    + '② .餐云               投掷属性\n'
+    + '③ .pc new <角色名>     创建角色卡\n'
+    + '④ .st <属性值...>      一键录入\n'
+    + '⑤ .sn cyws            同步名片\n'
+    + '⑥ .ra <技能名>        开始检定！\n'
     + '\n'
-    + '🎲 制卡与录入\n'
+    + '📖 输入 .餐云 help <分类> 查看详细帮助\n'
+    + '· 录卡 — 制卡/录入/属性\n'
+    + '· 检定 — 技能/属性/功法检定\n'
+    + '· 战斗 — 攻击/受伤/武器\n'
+    + '· 法术 — 施法/学习/删除\n'
+    + '· 成长 — 成长检定/标记/跑团联动\n'
+    + '· 管理 — NPC/状态/灵气/HP';
+
+  var HELP_ST = ''
+    + '🎲 录卡帮助\n'
+    + '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
     + '.餐云 [数量]           批量投掷属性（默认1组，最多10组）\n'
-    + '  → 投出STR/CON/SIZ/INT/POW/DEX/APP/气运/灵气\n'
-    + '  → 例：.餐云 3  一次投3组供选择\n'
+    + '  → 例：.餐云 3\n'
     + '.制卡                  引导式制卡（投属性+掷特质表）\n'
-    + '  → 自动掷出1D8个人特点+1D20额外经历\n'
     + '.st <属性值...>         录入角色卡（核心命令）\n'
-    + '  → 自动识别灵根/种族/境界/职业四个元数据\n'
-    + '  → 自动计算HP/PP/DB/ADB/职业点/兴趣点/法术点\n'
-    + '  → 自动计算闪避/灵力控制/语言初始值\n'
-    + '  → 支持中英文属性名（力量60 或 STR60）\n'
-    + '  → 支持冒号属性名（战斗:器60）\n'
-    + '  → 支持武器录入：武器:本命剑:1d8+1d4\n'
-    + '  → 支持增量修改：灵气+30（在当前值基础上加30）\n'
-    + '  → .st show/clear/del 等子命令自动穿透给核心处理\n'
-    + '  → 例：.st 力量60体质55体型65智力70意志60敏捷75外貌45 灵气70 金 人族 炼气 兵修 战斗:器60 武器:本命剑:1d8+1d4\n'
-    + '  → 增量例：.st 灵气+30 HP-5\n'
-    + '\n'
+    + '  → 自动识别灵根/种族/境界/职业，自动计算HP/PP/DB等\n'
+    + '  → 例：.st 力量60体质55体型65智力70意志60敏捷75外貌45 灵气70 金 人族 炼气 兵修 战斗:器60\n'
+    + '  → 支持格式：紧凑(力量60)、英文(STR60)、冒号(战斗:器60/STR:60)\n'
+    + '  → 增量修改：.st 灵气+30  .st HP-5\n'
+    + '  → 武器录入：.st 武器:本命剑:1d8+1d4\n'
     + '.录入 <灵根> <种族> <境界> <职业>\n'
-    + '  → 单独修改元数据，不需重新录入全部属性\n'
-    + '  → 例：.录入 金 人族 筑基 兵修\n'
-    + '.重算                  重新计算所有衍生属性\n'
-    + '  → 修改基础属性后使用，自动重算HP/PP/DB/ADB等\n'
-    + '\n'
-    + '━━━━━━━━━━━━━━━━━\n'
-    + '🎲 检定系统\n'
+    + '  → 单独修改元数据，例：.录入 金 人族 筑基 兵修\n'
+    + '.重算                  重新计算所有衍生属性';
+
+  var HELP_RA = ''
+    + '🎲 检定帮助\n'
+    + '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
     + '.ra <技能名>           技能检定（D100）\n'
     + '  → 大成功=1 / 特殊成功≤技能/5 / 困难成功≤技能/2\n'
     + '  → 成功≤技能 / 失败>技能 / 大失败=100\n'
-    + '  → 特殊成功和大成功自动标记成长\n'
-    + '  → 手动指定技能值：.ra <技能名> <数值> 或 .ra <数值> <技能名>\n'
-    + '  → 例：.ra 闪避  .ra 战斗:器  .ra 闪避 50  .ra 50 闪避\n'
+    + '  → .log on 时特殊成功/大成功自动标记成长\n'
+    + '  → 格式：.ra 闪避 | .ra 闪避 50 | .ra侦查40 | .ra 侦查+10 | .ra100\n'
     + '.rc <属性名>           属性检定\n'
-    + '  → 用属性值作为成功率（力量80即80%）\n'
-    + '  → 手动指定属性值：.rc <属性名> <数值> 或 .rc <数值> <属性名>\n'
-    + '  → 例：.rc 力量  .rc 意志  .rc 力量 80\n'
+    + '  → 用属性值作为成功率，格式与.ra相同\n'
     + '.功法 <模式> <技能名>   功法检定\n'
-    + '  → 模式：攻击（武器骰翻倍）/ 防御（抵消15伤害）/ 干扰（附带攻击）\n'
-    + '  → 先做技能检定，成功后再做功法检定\n'
-    + '  → 例：.功法 攻击 战斗:器\n'
-    + '\n'
-    + '━━━━━━━━━━━━━━━━━\n'
-    + '⚔️ 战斗系统\n'
-    + '━━━━━━━━━━━━━━━━━━━━\n'
-    + '.战斗 on               开启战斗状态\n'
-    + '.战斗 off              结束战斗状态\n'
+    + '  → 模式：攻击(武器骰翻倍)/防御(抵消15伤害)/干扰(附带攻击)\n'
+    + '  → 例：.功法 攻击 战斗:器';
+
+  var HELP_BATTLE = ''
+    + '⚔️ 战斗帮助\n'
+    + '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    + '.战斗 on/off           开启/结束战斗状态\n'
     + '.攻击 [技能名]         攻击检定+伤害计算\n'
     + '  → 默认技能：战斗:器\n'
     + '  → 自动读取武器伤害+DB+ADB\n'
-    + '  → 灵气>HP时自动附加ADB\n'
-    + '  → 大成功时武器伤害骰取最大值（DB/ADB不翻倍）\n'
-    + '  → 手动指定技能值：.攻击 <技能名> <数值> 或 .攻击 <数值>\n'
-    + '  → 例：.攻击  .攻击 战斗:器  .攻击 战斗:器 60\n'
-    + '.武器删除 <武器名>     删除角色武器\n'
-    + '  → 例：.武器删除 本命剑（别名：.武器移除）\n'
+    + '  → 大成功时武器伤害骰取最大值\n'
+    + '  → 格式：.攻击 | .攻击 战斗:器 60 | .攻击闪避+10\n'
+    + '.武器删除 <武器名>     删除角色武器（别名：.武器移除）\n'
     + '.受伤 <数值>           扣减HP\n'
-    + '  → 自动减去护甲值\n'
-    + '  → 音灵根攻击时无视护甲\n'
-    + '  → 鬼修特殊处理（HP始终为0，扣灵气代替）\n'
-    + '  → HP≤0时提示昏迷，HP≤-体质时提示死亡\n'
-    + '  → 例：.受伤 12\n'
-    + '.施法 <法术名> [pp/灵]  施放法术\n'
-    + '  → 不选消耗方式时显示法术信息和选项\n'
-    + '  → pp：消耗PP施放 | 灵：消耗灵气施放\n'
-    + '  → 例：.施法 摧枯拉朽  → .施法 摧枯拉朽 pp\n'
-    + '\n'
-    + '💓 状态管理\n'
-    + '━━━━━━━━━━━━━━━━\n'
-    + '.状态                  查看角色状态\n'
-    + '  → 显示HP/PP/灵气血条 + DB/ADB/护甲 + 状态标记\n'
-    + '.hp <+/-数值>          HP增减\n'
-    + '  → 例：.hp -5  .hp +10\n'
-    + '.灵气 <+/-数值>        灵气增减\n'
-    + '  → 灵气低于HP时提醒ADB失效\n'
-    + '  → 灵气归零时提醒需意志检定\n'
-    + '  → 例：.灵气 -5  .灵气 +10\n'
-    + '.标记 <+名称/-名称>    状态标记管理\n'
-    + '  → 例：.标记 +中毒  .标记 -中毒\n'
-    + '.回复 <休息/行动/修炼>  灵气回复规则查询\n'
-    + '  → 休息：每半个时辰+1PP\n'
-    + '  → 行动：每时辰+2PP\n'
-    + '  → 修炼：不回复PP\n'
-    + '\n'
-    + '━━━━━━━━━━━━━━━━━━━\n'
-    + '📈 成长系统\n'
-    + '━━━━━━━━━━━━━━━━━━━\n'
-    + '.成长标记              查看可成长技能列表\n'
-    + '  → 特殊成功和大成功自动获得成长标记\n'
-    + '.成长标记 清空          清空所有成长标记\n'
-    + '.成长 <技能名>         成长检定\n'
-    + '  → 掷1D100，出目>技能值则成长成功，+1D10\n'
-    + '  → 例：.成长 闪避\n'
-    + '\n'
-    + '━━━━━━━━━━━━━━━\n'
-    + '📜 法术系统\n'
+    + '  → 自动减护甲，鬼修扣灵气，HP≤0昏迷\n'
+    + '.施法 <法术名> [pp/灵]  施放法术';
+
+  var HELP_SPELL = ''
+    + '📜 法术帮助\n'
+    + '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
     + '.法术学习 <法术名> [品阶]\n'
-    + '  → 学习预置法术或职业法术\n'
-    + '  → 职业法术品阶由玩家指定（天/地/玄/黄）\n'
-    + '  → 自动扣除法术点（被动法术不占用）\n'
     + '  → 例：.法术学习 摧枯拉朽  .法术学习 兵戈 黄\n'
     + '.法术创建 <名称> <品阶> [消耗] [时间] [效果]\n'
-    + '  → 创建自创法术\n'
-    + '  → 品阶必填：天/地/玄/黄/不入流\n'
-    + '  → 消耗可选：5PP / 10灵气 / 5PP/20灵气（默认按设定）\n'
-    + '  → 时间可选：即时/短时/长时/被动（默认即时）\n'
+    + '  → 品阶：天/地/玄/黄/不入流\n'
     + '  → 例：.法术创建 火球术 玄 5PP 即时 向目标投掷火球\n'
     + '.法术列表              查看已学法术\n'
-    + '  → 显示品阶/消耗/施放时间 + 法术点使用情况\n'
-    + '.法术删除 <法术名>     遗忘已学法术并退还法术点\n'
-    + '  → 被动法术不退还法术点\n'
-    + '  → 例：.法术删除 火球术（别名：.法术遗忘）\n'
+    + '.法术删除 <法术名>     遗忘法术并退还法术点（别名：.法术遗忘）';
+
+  var HELP_GROW = ''
+    + '📈 成长帮助\n'
+    + '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    + '跑团中(.log on)特殊成功/大成功自动标记成长\n'
+    + '休息中(.log off)不自动标记，需用 .成长 ra 手动记录\n'
     + '\n'
-    + '━━━━━━━━━━━━━━━━━━━━━\n'
-    + '📖 速查指令\n'
-    + '━━━━━━━━━━━━━━━━━━━━\n'
-    + '.灵根查询 <名称>       查询灵根属性加成和特殊能力\n'
-    + '.种族查询 <名称>       查询种族加成和特殊规则\n'
-    + '.职业查询 <名称>       查询职业适配灵根、技能和法术\n'
-    + '.境界查询 <名称>       查询境界ADB和法术点\n'
-    + '  → 例：.灵根查询 金  .种族查询 鬼修  .职业查询 兵修\n'
+    + '.成长 <技能名>         成长检定（1D100>技能值则+1D10）\n'
+    + '.成长 ra <技能名>      检定+强制标记成长（.log off时使用）\n'
+    + '.成长 all              批量成长所有已标记技能\n'
+    + '.成长 技能1 技能2      批量成长指定技能\n'
+    + '.成长标记              查看可成长技能列表\n'
+    + '.成长标记 清空          清空所有成长标记\n'
+    + '.标记 <+名称/-名称>    状态标记管理';
+
+  var HELP_ADMIN = ''
+    + '🔧 管理帮助\n'
+    + '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    + '.状态                  查看角色状态（HP/PP/灵气/标记）\n'
+    + '.hp <+/-数值>          HP增减\n'
+    + '.灵气 <+/-数值>        灵气增减\n'
+    + '.回复 <休息/行动/修炼>  灵气回复规则查询\n'
+    + '.制卡                  引导式制卡\n'
+    + '.灵根查询/.种族查询/.职业查询/.境界查询 <名称>\n'
     + '\n'
-    + '━━━━━━━━━━━━━━━━━━━━━━━━━\n'
     + '🎭 NPC管理（KP专用）\n'
-    + '━━━━━━━━━━━━━━━━━━━━\n'
     + '.npc add <名称> <属性值...>  创建NPC\n'
     + '  → 例：.npc add 小兵A 力量50 体质40 闪避30 HP10 护甲2\n'
-    + '  → DB/ADB用=号：.npc add BossA 力量80 HP20 DB=+1D6\n'
     + '.npc <名称> ra <技能> [数值]  NPC技能检定\n'
     + '.npc <名称> 攻击 [技能] [数值] NPC攻击\n'
-    + '.npc <名称> 受伤 <数值>        NPC受伤\n'
-    + '.npc <名称> hp <+/-数值>       NPC HP增减\n'
-    + '.npc <名称> 灵气 <+/-数值>     NPC灵气增减\n'
-    + '.npc <名称> 武器 <名> <公式>   NPC武器添加\n'
-    + '.npc <名称> 武器 del <名>      NPC武器删除\n'
-    + '.npc <名称> st                  查看NPC属性\n'
-    + '.npc <名称> 标记 <+名/-名>     NPC状态标记\n'
-    + '.npc <名称> del                 删除NPC\n'
-    + '.npc list                       列出所有NPC\n'
-    + '.npc clear                      清空所有NPC\n'
-    + '\n'
-    + '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
-    + '💡 提示\n'
-    + '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
-    + '· 技能检定用 .ra 而非 .r（.r是核心命令，无法覆盖）\n'
-    + '· KP可使用 .npc 管理NPC，无需切换角色卡\n'
-    + '· 所有检定命令支持手动指定数值：.ra 闪避 50 / .攻击 60\n'
-    + '· 切换房规：.set cyws  |  切回COC：.set coc\n'
-    + '· 名片同步：.sn（一次性）或 .sn auto（自动同步）\n'
-    + '· 任何指令加 help 可查看帮助，如 .st help';
+    + '.npc <名称> 受伤 <数值>  NPC受伤\n'
+    + '.npc <名称> hp/灵气 <+/-数值>  NPC数值增减\n'
+    + '.npc <名称> 武器 <名> <公式>  NPC武器添加\n'
+    + '.npc <名称> 武器 del <名>     NPC武器删除\n'
+    + '.npc <名称> st/标记/del       查看/标记/删除\n'
+    + '.npc list / .npc clear        列出/清空NPC';
 
   // 5.1 .st 命令
   var cmdSt = seal.ext.newCmdItemInfo();
@@ -1026,7 +1086,11 @@ if (!seal.ext.find('cyws')) {
       output += '\n使用 .法术学习 ' + profData.spell.name + ' <品阶> 来学习';
     }
 
-    output += '\n━━━━━━━━━━━━━━━━━━━━━━\n💡 录入完成后同步名片：.sn（一次性）或 .sn auto（自动同步）';
+    if (parsed.unrecognized.length > 0) {
+      output += '\n━━━━━━━━━━━━━━━━━━━━━━\n⚠️ 未识别内容：' + parsed.unrecognized.join('、');
+    }
+
+    output += '\n━━━━━━━━━━━━━━━━━━━━━━\n💡 录入完成后同步名片：.sn cyws';
 
     seal.replyToSender(ctx, msg, output);
     return seal.ext.newCmdExecuteResult(true);
@@ -1036,48 +1100,38 @@ if (!seal.ext.find('cyws')) {
   // 5.2 .ra 命令
   var cmdRa = seal.ext.newCmdItemInfo();
   cmdRa.name = 'ra';
-  cmdRa.help = '🎲 .ra <技能名> — 技能检定\n\n掷1D100，与技能值比较判定成功等级：\n· 大成功=1 / 特殊成功≤技能/5 / 困难成功≤技能/2\n· 成功≤技能 / 失败>技能 / 大失败=100\n\n特殊成功和大成功自动获得成长标记。\n支持手动指定技能值：.ra <技能名> <数值> 或 .ra <数值> <技能名>\n\n例：.ra 闪避  .ra 战斗:器  .ra 闪避 50  .ra 50 闪避';
+  cmdRa.help = '🎲 .ra <技能名> — 技能检定\n\n掷1D100，与技能值比较判定成功等级：\n· 大成功=1 / 特殊成功≤技能/5 / 困难成功≤技能/2\n· 成功≤技能 / 失败>技能 / 大失败=100\n\n跑团中(.log on)特殊成功/大成功自动标记成长。\n支持格式：\n· .ra 闪避       从卡片读取技能值\n· .ra 闪避 50    手动指定技能值\n· .ra 50 闪避    数值在前\n· .ra侦查40      无空格紧凑格式\n· .ra 侦查+10    临时加值检定\n· .ra 侦查-5     临时减值检定\n· .ra100         纯数值检定';
   cmdRa.solve = function(ctx, msg, cmdArgs) {
     if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var arg1 = cmdArgs.getArgN(1);
     if (!arg1) {
-      seal.replyToSender(ctx, msg, '用法: .ra <技能名> [数值]  或  .ra <数值> <技能名>');
+      seal.replyToSender(ctx, msg, '用法: .ra <技能名> [数值/+加值/-减值]\n例：.ra 闪避  .ra侦查40  .ra 闪避+10');
       return seal.ext.newCmdExecuteResult(true);
     }
-    var arg2 = cmdArgs.getArgN(2);
-    var skillName, manualValue;
-    var arg1IsNum = !isNaN(parseInt(arg1, 10)) && String(parseInt(arg1, 10)) === arg1;
 
-    if (arg1IsNum && arg2) {
-      manualValue = parseInt(arg1, 10);
-      skillName = arg2;
-    } else if (arg2 && !isNaN(parseInt(arg2, 10)) && String(parseInt(arg2, 10)) === arg2) {
-      skillName = arg1;
-      manualValue = parseInt(arg2, 10);
-    } else {
-      skillName = arg1;
-      manualValue = null;
-    }
+    var parsed = parseRaInput(cmdArgs);
+    var skillName = parsed.skillName;
+    var baseValue = parsed.baseValue;
+    var bonus = parsed.bonus;
+    var isManual = parsed.isManual;
 
-    var resolved = resolveAttrName(skillName);
-    var lookupName = (resolved !== skillName) ? resolved : skillName;
+    // 计算有效检定值
     var skillValue;
-    var isManual = false;
-
-    if (manualValue !== null) {
-      skillValue = manualValue;
-      skillName = lookupName;
-      isManual = true;
-    } else {
-      skillValue = getInt(ctx, lookupName, -1);
-      if (skillValue < 0 && SKILL_DEFAULTS.hasOwnProperty(lookupName)) {
-        skillValue = SKILL_DEFAULTS[lookupName];
+    if (baseValue !== null) {
+      skillValue = baseValue + bonus;
+    } else if (skillName) {
+      var cardVal = getInt(ctx, skillName, -1);
+      if (cardVal < 0 && SKILL_DEFAULTS.hasOwnProperty(skillName)) {
+        cardVal = SKILL_DEFAULTS[skillName];
       }
-      if (skillValue < 0) {
+      if (cardVal < 0) {
         seal.replyToSender(ctx, msg, '⚠️ 未找到技能: ' + skillName + '\n可手动指定数值: .ra ' + skillName + ' <数值>');
         return seal.ext.newCmdExecuteResult(true);
       }
-      skillName = lookupName;
+      skillValue = cardVal + bonus;
+    } else {
+      // 纯数值检定（无技能名）
+      skillValue = baseValue;
     }
 
     var rollResult = roll(ctx, '1d100');
@@ -1088,13 +1142,25 @@ if (!seal.ext.find('cyws')) {
 
     var output = '🎲 餐云卧石技能检定\n━━━━━━━━━━━━━━━\n';
     output += '角色：' + ctx.player.name + '\n';
-    output += '技能：' + skillName + ' (' + skillValue + '%)' + (isManual ? ' [手动]' : '') + '\n';
+    if (skillName) {
+      var valStr = '';
+      if (isManual) {
+        valStr = baseValue + '%' + (bonus !== 0 ? (bonus > 0 ? '+' + bonus : '' + bonus) : '') + ' [手动]';
+      } else {
+        valStr = getInt(ctx, skillName, 0) + '%' + (bonus !== 0 ? (bonus > 0 ? '+' + bonus : '' + bonus) + ' [临时' + (bonus > 0 ? '加值' : '减值') + ']' : '');
+      }
+      output += '技能：' + skillName + ' (' + valStr + ')\n';
+    } else {
+      output += '检定值：' + skillValue + '% [纯数值]\n';
+    }
     output += '成功/困难/特殊：' + skillValue + '/' + hardVal + '/' + specialVal + '\n';
     output += '━━━━━━━━━━━━━━━\n';
     output += '🎲 1D100 = ' + rollResult + '\n';
     output += (levelEmoji[judge.level] || '') + ' ' + judge.level;
 
-    if (judge.canGrow && !isManual) {
+    // 成长标记：log on 且非手动指定值
+    var isLogOn = ctx.group && ctx.group.logOn;
+    if (judge.canGrow && !isManual && skillName && isLogOn) {
       output += '\n[成长标记 ✓]';
       var meta = getMeta(ctx);
       if (!meta.growthMarks) meta.growthMarks = {};
@@ -1122,39 +1188,41 @@ if (!seal.ext.find('cyws')) {
   // 5.3 .rc 命令
   var cmdRc = seal.ext.newCmdItemInfo();
   cmdRc.name = 'rc';
-  cmdRc.help = '🎲 .rc <属性名> — 属性检定\n\n用属性值作为成功率进行D100检定（力量80即80%成功率）。\n成功等级与.ra相同。\n支持手动指定属性值：.rc <属性名> <数值> 或 .rc <数值> <属性名>\n\n例：.rc 力量  .rc 意志  .rc 力量 80  .rc 80 力量';
+  cmdRc.help = '🎲 .rc <属性名> — 属性检定\n\n用属性值作为成功率进行D100检定（力量80即80%成功率）。\n成功等级与.ra相同。\n支持格式：\n· .rc 力量       从卡片读取\n· .rc 力量 80    手动指定\n· .rc力量80      无空格紧凑格式\n· .rc 力量+10    临时加值\n\n例：.rc 力量  .rc 意志  .rc 力量 80';
   cmdRc.solve = function(ctx, msg, cmdArgs) {
     if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var arg1 = cmdArgs.getArgN(1);
     if (!arg1) {
-      seal.replyToSender(ctx, msg, '用法: .rc <属性名> [数值]  或  .rc <数值> <属性名>');
+      seal.replyToSender(ctx, msg, '用法: .rc <属性名> [数值/+加值/-减值]\n例：.rc 力量  .rc力量80  .rc 力量+10');
       return seal.ext.newCmdExecuteResult(true);
     }
-    var arg2 = cmdArgs.getArgN(2);
-    var attrName, attrValue, isManual;
-    var arg1IsNum = !isNaN(parseInt(arg1, 10)) && String(parseInt(arg1, 10)) === arg1;
 
-    if (arg1IsNum && arg2) {
-      attrValue = parseInt(arg1, 10);
-      attrName = arg2;
-      isManual = true;
-    } else if (arg2 && !isNaN(parseInt(arg2, 10)) && String(parseInt(arg2, 10)) === arg2) {
-      attrName = arg1;
-      attrValue = parseInt(arg2, 10);
-      isManual = true;
+    var parsed = parseRaInput(cmdArgs);
+    var attrName = parsed.skillName;
+    var baseValue = parsed.baseValue;
+    var bonus = parsed.bonus;
+    var isManual = parsed.isManual;
+
+    var attrValue;
+    if (baseValue !== null) {
+      attrValue = baseValue + bonus;
+    } else if (attrName) {
+      attrValue = getInt(ctx, attrName, 0) + bonus;
     } else {
-      attrName = arg1;
-      attrValue = null;
-      isManual = false;
+      attrValue = baseValue;
     }
 
-    var resolved = resolveAttrName(attrName);
-    if (attrValue === null) attrValue = getInt(ctx, resolved, 0);
     var rollResult = roll(ctx, '1d100');
     var judge = judgeSuccess(rollResult, attrValue);
     var levelEmoji = { '大成功': '✨', '特殊成功': '✨', '困难成功': '✅', '成功': '✅', '失败': '❌', '大失败': '💀' };
 
-    var output = '🎲 属性检定：' + resolved + ' (' + attrValue + '%)' + (isManual ? ' [手动]' : '') + '\n';
+    var valStr = attrValue + '%';
+    if (isManual) {
+      valStr = baseValue + '%' + (bonus !== 0 ? (bonus > 0 ? '+' + bonus : '' + bonus) : '') + ' [手动]';
+    } else if (bonus !== 0) {
+      valStr = getInt(ctx, attrName, 0) + '%' + (bonus > 0 ? '+' + bonus : '' + bonus) + ' [临时' + (bonus > 0 ? '加值' : '减值') + ']';
+    }
+    var output = '🎲 属性检定：' + (attrName || '纯数值') + ' (' + valStr + ')\n';
     output += '🎲 1D100 = ' + rollResult + ' → ' + (levelEmoji[judge.level] || '') + ' ' + judge.level;
     seal.replyToSender(ctx, msg, output);
     return seal.ext.newCmdExecuteResult(true);
@@ -1164,12 +1232,22 @@ if (!seal.ext.find('cyws')) {
   // 5.4 .餐云 + .cyws 命令
   var cmdCyws = seal.ext.newCmdItemInfo();
   cmdCyws.name = '餐云';
-  cmdCyws.help = '🏔️ .餐云 [数量] — 批量投掷属性\n\n投掷7项基础属性(3d6×5)+气运(3d6×5)+灵气(2d6×5+30)。\n可选参数：数量(1-10)，默认1组。\n\n.餐云 help — 查看完整帮助\n.cyws — .餐云的别名';
+  cmdCyws.help = '🏔️ .餐云 [数量] — 批量投掷属性\n\n投掷7项基础属性(3d6×5)+气运(3d6×5)+灵气(2d6×5+30)。\n可选参数：数量(1-10)，默认1组。\n\n.餐云 help [分类] — 查看帮助（录卡/检定/战斗/法术/成长/管理）\n.cyws — .餐云的别名';
   cmdCyws.solve = function(ctx, msg, cmdArgs) {
     var subCmd = cmdArgs.getArgN(1);
     // help 不受房规守卫限制——用户需要先看到帮助才知道怎么 .set cyws
     if (subCmd === 'help' || subCmd === '帮助') {
-      seal.replyToSender(ctx, msg, HELP_TEXT);
+      var subCat = cmdArgs.getArgN(2);
+      var helpMap = {
+        '录卡': HELP_ST, '制卡': HELP_ST, '属性': HELP_ST, 'st': HELP_ST,
+        '检定': HELP_RA, 'ra': HELP_RA, 'rc': HELP_RA,
+        '战斗': HELP_BATTLE, '攻击': HELP_BATTLE,
+        '法术': HELP_SPELL, '施法': HELP_SPELL,
+        '成长': HELP_GROW, '标记': HELP_GROW,
+        '管理': HELP_ADMIN, 'npc': HELP_ADMIN, '状态': HELP_ADMIN
+      };
+      var helpContent = helpMap[subCat] || HELP_TEXT;
+      seal.replyToSender(ctx, msg, helpContent);
       return seal.ext.newCmdExecuteResult(true);
     }
     var count = Math.min(Math.max(Number(subCmd) || 1, 1), 10);
@@ -1186,9 +1264,10 @@ if (!seal.ext.find('cyws')) {
       var qi = roll(ctx, '2d6*5+30');
       var total = str + con + siz + int_ + pow + dex + app;
       output += '[' + (i+1) + '] STR:' + str + ' CON:' + con + ' SIZ:' + siz + ' INT:' + int_ + ' POW:' + pow + ' DEX:' + dex + ' APP:' + app + '\n';
-      output += '    气运:' + luck + ' 灵气:' + qi + ' 总值:' + total + '\n\n';
+      output += '    气运:' + luck + ' 灵气:' + qi + ' 总值:' + total + '\n';
+      output += '📋 .st 力量' + str + '体质' + con + '体型' + siz + '智力' + int_ + '意志' + pow + '敏捷' + dex + '外貌' + app + ' 气运' + luck + '灵气' + qi + '\n\n';
     }
-    output += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n请选择一组，在Excel角色卡中填入后使用 .st 录入';
+    output += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n选择一组后复制上方 .st 命令即可录入';
     seal.replyToSender(ctx, msg, output);
     return seal.ext.newCmdExecuteResult(true);
   };
@@ -1252,55 +1331,8 @@ if (!seal.ext.find('cyws')) {
   };
   ext.cmdMap['重算'] = cmdRecalc;
 
-  // 5.7 .攻击 命令
-  var cmdAttack = seal.ext.newCmdItemInfo();
-  cmdAttack.name = '攻击';
-  cmdAttack.help = '⚔️ .攻击 [技能名] — 攻击检定+伤害计算\n\n先做技能检定(1D100)，命中后自动计算伤害：\n· 武器伤害骰（从.st录入的武器读取）\n· + DB（力量+体型查表）\n· + ADB（仅灵气>HP时附加）\n\n大成功：武器伤害骰取最大值（DB/ADB不翻倍）\n大失败：提示由KP裁定意外效果\n\n默认技能：战斗:器\n支持手动指定技能值：.攻击 <技能名> <数值>\n例：.攻击  .攻击 战斗:体  .攻击 战斗:器 60  .攻击 60';
-  cmdAttack.solve = function(ctx, msg, cmdArgs) {
-    var arg1 = cmdArgs.getArgN(1) || '';
-    var arg2 = cmdArgs.getArgN(2) || '';
-    var skillName, manualValue, isManual;
-    var arg1IsNum = !isNaN(parseInt(arg1, 10)) && String(parseInt(arg1, 10)) === arg1 && arg1 !== '';
-
-    if (arg1IsNum && !arg2) {
-      // .攻击 60 → 默认技能+手动值
-      skillName = '战斗:器';
-      manualValue = parseInt(arg1, 10);
-      isManual = true;
-    } else if (arg1IsNum && arg2) {
-      // .攻击 60 战斗:器 → value=60, skill=战斗:器
-      manualValue = parseInt(arg1, 10);
-      skillName = arg2;
-      isManual = true;
-    } else if (arg2 && !isNaN(parseInt(arg2, 10)) && String(parseInt(arg2, 10)) === arg2) {
-      // .攻击 战斗:器 60 → skill=战斗:器, value=60
-      skillName = arg1;
-      manualValue = parseInt(arg2, 10);
-      isManual = true;
-    } else {
-      skillName = arg1 || '战斗:器';
-      manualValue = null;
-      isManual = false;
-    }
-
-    var resolvedSkill = resolveAttrName(skillName);
-    var skillValue;
-    if (manualValue !== null) {
-      skillValue = manualValue;
-    } else {
-      skillValue = getInt(ctx, resolvedSkill, -1);
-      if (skillValue < 0 && SKILL_DEFAULTS.hasOwnProperty(resolvedSkill)) {
-        skillValue = SKILL_DEFAULTS[resolvedSkill];
-      }
-      if (skillValue < 0) skillValue = 0;
-    }
-    var rollResult = roll(ctx, '1d100');
-    var judge = judgeSuccess(rollResult, skillValue);
-
-    var output = '⚔️ 攻击检定\n━━━━━━━━━━━━━━━\n';
-    output += '角色：' + ctx.player.name + ' | 技能：' + resolvedSkill + ' (' + skillValue + '%)' + (isManual ? ' [手动]' : '') + '\n';
-    output += '🎲 1D100 = ' + rollResult + ' → ' + judge.level + '\n';
-
+  // 攻击伤害计算辅助函数
+  function handleAttackDamage(ctx, msg, output, resolvedSkill, skillValue, judge) {
     if (judge.level === '失败' || judge.level === '大失败') {
       output += '━━━━━━━━━━━━━━━\n攻击未命中';
       if (judge.level === '大失败') output += '\n💀 大失败！由KP裁定意外效果';
@@ -1371,6 +1403,63 @@ if (!seal.ext.find('cyws')) {
 
     seal.replyToSender(ctx, msg, output);
     return seal.ext.newCmdExecuteResult(true);
+  }
+
+  // 5.7 .攻击 命令
+  var cmdAttack = seal.ext.newCmdItemInfo();
+  cmdAttack.name = '攻击';
+  cmdAttack.help = '⚔️ .攻击 [技能名] — 攻击检定+伤害计算\n\n先做技能检定(1D100)，命中后自动计算伤害：\n· 武器伤害骰（从.st录入的武器读取）\n· + DB（力量+体型查表）\n· + ADB（仅灵气>HP时附加）\n\n大成功：武器伤害骰取最大值（DB/ADB不翻倍）\n大失败：提示由KP裁定意外效果\n\n默认技能：战斗:器\n支持格式：\n· .攻击              默认技能\n· .攻击 战斗:体      指定技能\n· .攻击 战斗:器 60   手动指定技能值\n· .攻击 60           默认技能+手动值\n· .攻击战斗:器+10    紧凑格式+临时加值\n\n例：.攻击  .攻击 战斗:体  .攻击 60';
+  cmdAttack.solve = function(ctx, msg, cmdArgs) {
+    var arg1 = cmdArgs.getArgN(1) || '';
+    var arg2 = cmdArgs.getArgN(2) || '';
+
+    // 纯数值格式：.攻击 60 → 默认技能+手动值
+    if (/^\d+$/.test(arg1) && !arg2) {
+      var parsed60 = { skillName: '战斗:器', baseValue: parseInt(arg1, 10), bonus: 0, isManual: true };
+      var resolvedSkill60 = resolveAttrName(parsed60.skillName);
+      var skillValue60 = parsed60.baseValue;
+      var rollResult60 = roll(ctx, '1d100');
+      var judge60 = judgeSuccess(rollResult60, skillValue60);
+      var output60 = '⚔️ 攻击检定\n━━━━━━━━━━━━━━━\n';
+      output60 += '角色：' + ctx.player.name + ' | 技能：' + resolvedSkill60 + ' (' + skillValue60 + '%) [手动]\n';
+      output60 += '🎲 1D100 = ' + rollResult60 + ' → ' + judge60.level + '\n';
+      // 复用后续伤害计算逻辑（见下方）
+      return handleAttackDamage(ctx, msg, output60, resolvedSkill60, skillValue60, judge60);
+    }
+
+    var parsed = parseRaInput(cmdArgs);
+    var skillName = parsed.skillName || '战斗:器';
+    var baseValue = parsed.baseValue;
+    var bonus = parsed.bonus;
+    var isManual = parsed.isManual;
+
+    var resolvedSkill = resolveAttrName(skillName);
+    var skillValue;
+    if (baseValue !== null) {
+      skillValue = baseValue + bonus;
+    } else {
+      skillValue = getInt(ctx, resolvedSkill, -1);
+      if (skillValue < 0 && SKILL_DEFAULTS.hasOwnProperty(resolvedSkill)) {
+        skillValue = SKILL_DEFAULTS[resolvedSkill];
+      }
+      if (skillValue < 0) skillValue = 0;
+      skillValue += bonus;
+    }
+    var rollResult = roll(ctx, '1d100');
+    var judge = judgeSuccess(rollResult, skillValue);
+
+    var valStr = skillValue + '%';
+    if (isManual) {
+      valStr = baseValue + '%' + (bonus !== 0 ? (bonus > 0 ? '+' + bonus : '' + bonus) : '') + ' [手动]';
+    } else if (bonus !== 0) {
+      var cardAtk = getInt(ctx, resolvedSkill, 0);
+      valStr = cardAtk + '%' + (bonus > 0 ? '+' + bonus : '' + bonus) + ' [临时]';
+    }
+    var output = '⚔️ 攻击检定\n━━━━━━━━━━━━━━━\n';
+    output += '角色：' + ctx.player.name + ' | 技能：' + resolvedSkill + ' (' + valStr + ')\n';
+    output += '🎲 1D100 = ' + rollResult + ' → ' + judge.level + '\n';
+
+    return handleAttackDamage(ctx, msg, output, resolvedSkill, skillValue, judge);
   };
   ext.cmdMap['攻击'] = cmdAttack;
 
@@ -1697,13 +1786,120 @@ if (!seal.ext.find('cyws')) {
 
   var cmdGrow = seal.ext.newCmdItemInfo();
   cmdGrow.name = '成长';
-  cmdGrow.help = '📈 .成长 <技能名> — 成长检定\n\n掷1D100，出目>技能值则成长成功，技能+1D10。\n仅标记了成长标记的技能建议进行成长检定。\n\n例：.成长 闪避  .成长 战斗:器';
+  cmdGrow.help = '📈 .成长 <技能名> — 成长检定\n\n掷1D100，出目>技能值则成长成功，技能+1D10。\n仅标记了成长标记的技能建议进行成长检定。\n\n成长与跑团日志联动：.log on 时检定自动标记成长，.log off 时需用 .成长 ra\n\n用法：\n· .成长 <技能名>       单项成长检定\n· .成长 ra <技能名>    检定+强制成长标记（log off时使用）\n· .成长 all            批量成长所有已标记技能\n· .成长 技能1 技能2    批量成长指定技能\n\n例：.成长 闪避  .成长 战斗:器  .成长 ra 侦查  .成长 all';
   cmdGrow.solve = function(ctx, msg, cmdArgs) {
-    var skillName = cmdArgs.getArgN(1);
-    if (!skillName) {
-      seal.replyToSender(ctx, msg, '用法: .成长 <技能名>');
+    var text = (cmdArgs.getRestArgsFrom(1) || '').trim();
+    if (!text) {
+      seal.replyToSender(ctx, msg, '用法: .成长 <技能名> | .成长 ra <技能> | .成长 all | .成长 技能1 技能2');
       return seal.ext.newCmdExecuteResult(true);
     }
+
+    var tokens = text.split(/\s+/).filter(function(t) { return t.length > 0; });
+    var arg1 = tokens[0];
+
+    // .成长 ra <技能名> — 检定+强制成长标记
+    if (arg1 === 'ra') {
+      var raSkill = tokens[1];
+      if (!raSkill) {
+        seal.replyToSender(ctx, msg, '用法: .成长 ra <技能名>');
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      var raResolved = resolveAttrName(raSkill);
+      var raSkillVal = getInt(ctx, raResolved, -1);
+      if (raSkillVal < 0 && SKILL_DEFAULTS.hasOwnProperty(raResolved)) {
+        raSkillVal = SKILL_DEFAULTS[raResolved];
+      }
+      if (raSkillVal < 0) {
+        seal.replyToSender(ctx, msg, '⚠️ 未找到技能: ' + raSkill);
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      var raRoll = roll(ctx, '1d100');
+      var raJudge = judgeSuccess(raRoll, raSkillVal);
+
+      var raOutput = '📈 成长记录检定\n━━━━━━━━━━━━━━━\n';
+      raOutput += '技能：' + raResolved + ' (' + raSkillVal + '%)\n';
+      raOutput += '🎲 1D100 = ' + raRoll + '\n';
+      raOutput += (raJudge.canGrow ? '✨ ' : '') + raJudge.level;
+
+      if (raJudge.canGrow) {
+        var raMeta = getMeta(ctx);
+        if (!raMeta.growthMarks) raMeta.growthMarks = {};
+        raMeta.growthMarks[raResolved] = raJudge.level;
+        setMeta(ctx, raMeta);
+        raOutput += '\n[成长标记 ✓]';
+      } else {
+        raOutput += '\n（未达到特殊成功，不标记成长）';
+      }
+      seal.replyToSender(ctx, msg, raOutput);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    // .成长 all — 批量成长所有已标记技能
+    if (arg1 === 'all') {
+      var allMeta = getMeta(ctx);
+      var allMarks = allMeta.growthMarks || {};
+      var allSkillNames = Object.keys(allMarks);
+      if (allSkillNames.length === 0) {
+        seal.replyToSender(ctx, msg, '当前没有成长标记，无需成长检定');
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      var allOutput = '📈 批量成长检定\n━━━━━━━━━━━━━━━\n';
+      var allSuccessCount = 0;
+      for (var asi = 0; asi < allSkillNames.length; asi++) {
+        var aSkName = allSkillNames[asi];
+        var aSkVal = getInt(ctx, aSkName, 0);
+        var aRoll = roll(ctx, '1d100');
+        var aBonus = roll(ctx, '1d10');
+        var aSuccess = aRoll > aSkVal;
+        if (aSuccess) {
+          var aNewVal = aSkVal + aBonus;
+          setInt(ctx, aSkName, aNewVal);
+          delete allMeta.growthMarks[aSkName];
+          allSuccessCount++;
+          allOutput += aSkName + ' ' + aSkVal + ' → 1D100=' + aRoll + ' > ' + aSkVal + ' ✓ 成长 → +1D10=' + aBonus + ' → ' + aNewVal + '%\n';
+        } else {
+          allOutput += aSkName + ' ' + aSkVal + ' → 1D100=' + aRoll + ' ≤ ' + aSkVal + ' ✗ 失败\n';
+        }
+      }
+      setMeta(ctx, allMeta);
+      allOutput += '━━━━━━━━━━━━━━━\n完成：' + allSkillNames.length + '项检定，' + allSuccessCount + '项成长成功';
+      seal.replyToSender(ctx, msg, allOutput);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    // .成长 技能1 技能2 ... — 批量成长指定技能
+    if (tokens.length > 1) {
+      var batchOutput = '📈 批量成长检定\n━━━━━━━━━━━━━━━\n';
+      var batchSuccessCount = 0;
+      var batchMeta = getMeta(ctx);
+      for (var bi = 0; bi < tokens.length; bi++) {
+        var bSkName = resolveAttrName(tokens[bi]);
+        var bSkVal = getInt(ctx, bSkName, -1);
+        if (bSkVal < 0 && SKILL_DEFAULTS.hasOwnProperty(bSkName)) {
+          bSkVal = SKILL_DEFAULTS[bSkName];
+        }
+        if (bSkVal < 0) bSkVal = 0;
+        var bRoll = roll(ctx, '1d100');
+        var bBonus = roll(ctx, '1d10');
+        var bSuccess = bRoll > bSkVal;
+        if (bSuccess) {
+          var bNewVal = bSkVal + bBonus;
+          setInt(ctx, bSkName, bNewVal);
+          if (batchMeta.growthMarks) delete batchMeta.growthMarks[bSkName];
+          batchSuccessCount++;
+          batchOutput += bSkName + ' ' + bSkVal + ' → 1D100=' + bRoll + ' > ' + bSkVal + ' ✓ 成长 → +1D10=' + bBonus + ' → ' + bNewVal + '%\n';
+        } else {
+          batchOutput += bSkName + ' ' + bSkVal + ' → 1D100=' + bRoll + ' ≤ ' + bSkVal + ' ✗ 失败\n';
+        }
+      }
+      setMeta(ctx, batchMeta);
+      batchOutput += '━━━━━━━━━━━━━━━\n完成：' + tokens.length + '项检定，' + batchSuccessCount + '项成长成功';
+      seal.replyToSender(ctx, msg, batchOutput);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    // .成长 <技能名> — 原有单项成长
+    var skillName = arg1;
     var resolvedSkill = resolveAttrName(skillName);
     var skillValue = getInt(ctx, resolvedSkill, -1);
     if (skillValue < 0 && SKILL_DEFAULTS.hasOwnProperty(resolvedSkill)) {
