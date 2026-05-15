@@ -555,7 +555,7 @@ if (!seal.ext.find('cyws')) {
 
   // 输入解析 v3
   function parseStInput(text) {
-    var result = { attrs: {}, spiritRoot: null, race: null, realm: null, profession: null, weapon: null };
+    var result = { attrs: {}, increments: {}, spiritRoot: null, race: null, realm: null, profession: null, weapon: null };
     var tokens = text.split(/\s+/).filter(function(t) { return t.length > 0; });
     if (tokens.length === 0) return result;
 
@@ -605,6 +605,15 @@ if (!seal.ext.find('cyws')) {
         var key = defaultsKeys[di];
         if (token.startsWith(key) && token.length > key.length) {
           var rest = token.substring(key.length);
+          // 增量格式：灵气+30
+          if (rest.startsWith('+')) {
+            var incVal = parseInt(rest.substring(1), 10);
+            if (!isNaN(incVal) && String(incVal) === rest.substring(1)) {
+              result.increments[resolveAttrName(key)] = incVal;
+              matched = true; break;
+            }
+          }
+          // 绝对值格式：灵气80
           var val = parseInt(rest, 10);
           if (!isNaN(val) && String(val) === rest) {
             result.attrs[resolveAttrName(key)] = val;
@@ -619,6 +628,14 @@ if (!seal.ext.find('cyws')) {
         var entry = aliasEntries[ai];
         if (token.toLowerCase().startsWith(entry.alias.toLowerCase()) && token.length > entry.alias.length) {
           var arest = token.substring(entry.alias.length);
+          // 增量格式：qi+30
+          if (arest.startsWith('+')) {
+            var aincVal = parseInt(arest.substring(1), 10);
+            if (!isNaN(aincVal) && String(aincVal) === arest.substring(1)) {
+              result.increments[entry.canonical] = aincVal;
+              matched = true; break;
+            }
+          }
           var aval = parseInt(arest, 10);
           if (!isNaN(aval) && String(aval) === arest) {
             result.attrs[entry.canonical] = aval;
@@ -629,42 +646,52 @@ if (!seal.ext.find('cyws')) {
       if (matched) { idx++; continue; }
 
       // 冒号属性名紧凑格式
-      var colonMatch = token.match(/^(.+[:：].+?)(\d+)$/);
+      var colonMatch = token.match(/^(.+[:：].+?)[+]?(\d+)$/);
       if (colonMatch) {
         var cname = colonMatch[1].replace(/：/g, ':');
         var cval = parseInt(colonMatch[2], 10);
+        var cIsInc = token.charAt(colonMatch[1].length) === '+';
         if (!spiritRoots.has(cname) && !races.has(cname) && !realms.has(cname)) {
-          result.attrs[resolveAttrName(cname)] = cval;
+          if (cIsInc) { result.increments[resolveAttrName(cname)] = cval; }
+          else { result.attrs[resolveAttrName(cname)] = cval; }
           idx++; continue;
         }
       }
 
-      // 空格分离 name value 格式
+      // 空格分离 name value 格式（支持 name +value 增量）
       if (defaultsKeys.indexOf(token) >= 0 && idx + 1 < tokens.length) {
-        var nextVal = parseInt(tokens[idx+1], 10);
-        if (!isNaN(nextVal) && !spiritRoots.has(tokens[idx+1]) && !races.has(tokens[idx+1]) && !realms.has(tokens[idx+1])) {
-          result.attrs[resolveAttrName(token)] = nextVal;
+        var nextRaw = tokens[idx+1];
+        var nextIsInc = nextRaw.startsWith('+');
+        var nextVal = parseInt(nextIsInc ? nextRaw.substring(1) : nextRaw, 10);
+        if (!isNaN(nextVal) && !spiritRoots.has(nextRaw) && !races.has(nextRaw) && !realms.has(nextRaw)) {
+          if (nextIsInc) { result.increments[resolveAttrName(token)] = nextVal; }
+          else { result.attrs[resolveAttrName(token)] = nextVal; }
           idx += 2; continue;
         }
       }
 
-      // alias空格格式
+      // alias空格格式（支持 +value 增量）
       var aliasLookup = ALIAS_TO_CANONICAL[token.toLowerCase()] || ALIAS_TO_CANONICAL[token];
       if (aliasLookup && idx + 1 < tokens.length) {
-        var anextVal = parseInt(tokens[idx+1], 10);
+        var anextRaw = tokens[idx+1];
+        var anextIsInc = anextRaw.startsWith('+');
+        var anextVal = parseInt(anextIsInc ? anextRaw.substring(1) : anextRaw, 10);
         if (!isNaN(anextVal)) {
-          result.attrs[aliasLookup] = anextVal;
+          if (anextIsInc) { result.increments[aliasLookup] = anextVal; }
+          else { result.attrs[aliasLookup] = anextVal; }
           idx += 2; continue;
         }
       }
 
-      // 兜底正则
-      var simpleMatch = token.match(/^([^\d\s]+?)(\d+)$/);
+      // 兜底正则（支持 +增量）
+      var simpleMatch = token.match(/^([^\d\s+]+?)[+]?(\d+)$/);
       if (simpleMatch) {
         var sname = simpleMatch[1];
         var sval = parseInt(simpleMatch[2], 10);
+        var sIsInc = token.charAt(sname.length) === '+';
         if (!spiritRoots.has(sname) && !races.has(sname) && !realms.has(sname)) {
-          result.attrs[resolveAttrName(sname)] = sval;
+          if (sIsInc) { result.increments[resolveAttrName(sname)] = sval; }
+          else { result.attrs[resolveAttrName(sname)] = sval; }
           idx++; continue;
         }
       }
@@ -714,8 +741,10 @@ if (!seal.ext.find('cyws')) {
     + '  → 支持中英文属性名（力量60 或 STR60）\n'
     + '  → 支持冒号属性名（战斗:器60）\n'
     + '  → 支持武器录入：武器:本命剑:1d8+1d4\n'
+    + '  → 支持增量修改：灵气+30（在当前值基础上加30）\n'
     + '  → .st show/clear/del 等子命令自动穿透给核心处理\n'
     + '  → 例：.st 力量60体质55体型65智力70意志60敏捷75外貌45 灵气70 金 人族 炼气 兵修 战斗:器60 武器:本命剑:1d8+1d4\n'
+    + '  → 增量例：.st 灵气+30 HP-5\n'
     + '\n'
     + '.录入 <灵根> <种族> <境界> <职业>\n'
     + '  → 单独修改元数据，不需重新录入全部属性\n'
@@ -812,6 +841,13 @@ if (!seal.ext.find('cyws')) {
     + '  → 自动扣除法术点（被动法术不占用）\n'
     + '  → 例：.法术学习 摧枯拉朽  .法术学习 兵戈 黄\n'
     + '\n'
+    + '.法术创建 <名称> <品阶> [消耗] [时间] [效果]\n'
+    + '  → 创建自创法术\n'
+    + '  → 品阶必填：天/地/玄/黄/不入流\n'
+    + '  → 消耗可选：5PP / 10灵气 / 5PP/20灵气（默认按设定）\n'
+    + '  → 时间可选：即时/短时/长时/被动（默认即时）\n'
+    + '  → 例：.法术创建 火球术 玄 5PP 即时 向目标投掷火球\n'
+    + '\n'
     + '.法术列表              查看已学法术\n'
     + '  → 显示品阶/消耗/施放时间 + 法术点使用情况\n'
     + '\n'
@@ -855,7 +891,7 @@ if (!seal.ext.find('cyws')) {
   // 5.1 .st 命令
   var cmdSt = seal.ext.newCmdItemInfo();
   cmdSt.name = 'st';
-  cmdSt.help = '📋 .st <属性值...> — 录入角色卡\n\n自动识别灵根/种族/境界/职业，并计算HP/PP/DB/ADB等衍生值。\n\n格式：属性名+数值 紧凑排列，元数据关键词自动识别\n例：.st 力量60体质55体型65智力70意志60敏捷75外貌45 灵气70 金 人族 炼气 兵修 战斗:器60\n\n支持的格式：\n· 紧凑：力量60体质55\n· 空格：力量 60 体质 55\n· 英文别名：STR60 DEX75\n· 冒号属性：战斗:器60 知识:草药学5\n· 武器录入：武器:本命剑:1d8+1d4\n· 元数据关键词：金/木/水/火/土 等13种灵根、人族等9种种族、炼气等6种境界、22种职业\n\n子命令穿透：.st show / .st clear / .st del 等交给核心处理';
+  cmdSt.help = '📋 .st <属性值...> — 录入角色卡\n\n自动识别灵根/种族/境界/职业，并计算HP/PP/DB/ADB等衍生值。\n\n格式：属性名+数值 紧凑排列，元数据关键词自动识别\n例：.st 力量60体质55体型65智力70意志60敏捷75外貌45 灵气70 金 人族 炼气 兵修 战斗:器60\n\n支持的格式：\n· 紧凑：力量60体质55\n· 空格：力量 60 体质 55\n· 英文别名：STR60 DEX75\n· 冒号属性：战斗:器60 知识:草药学5\n· 增量修改：灵气+30（在当前值基础上加30）\n· 武器录入：武器:本命剑:1d8+1d4\n· 元数据关键词：金/木/水/火/土 等13种灵根、人族等9种种族、炼气等6种境界、22种职业\n\n子命令穿透：.st show / .st clear / .st del 等交给核心处理';
   cmdSt.solve = function(ctx, msg, cmdArgs) {
     if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var text = cmdArgs.getRestArgsFrom(1);
@@ -868,13 +904,24 @@ if (!seal.ext.find('cyws')) {
     }
 
     var parsed = parseStInput(text);
-    if (Object.keys(parsed.attrs).length === 0 && !parsed.spiritRoot && !parsed.race && !parsed.realm && !parsed.profession && !parsed.weapon) {
+    if (Object.keys(parsed.attrs).length === 0 && Object.keys(parsed.increments).length === 0 && !parsed.spiritRoot && !parsed.race && !parsed.realm && !parsed.profession && !parsed.weapon) {
       return seal.ext.newCmdExecuteResult(false);
     }
 
+    // 绝对值写入
     for (var key in parsed.attrs) {
       if (!parsed.attrs.hasOwnProperty(key)) continue;
       setInt(ctx, key, parsed.attrs[key]);
+    }
+
+    // 增量写入
+    var incResults = [];
+    for (var ikey in parsed.increments) {
+      if (!parsed.increments.hasOwnProperty(ikey)) continue;
+      var oldVal = getInt(ctx, ikey, 0);
+      var delta = parsed.increments[ikey];
+      setInt(ctx, ikey, oldVal + delta);
+      incResults.push(ikey + ':' + oldVal + '→' + (oldVal + delta));
     }
 
     if (parsed.spiritRoot) setStr(ctx, '灵根', parsed.spiritRoot);
@@ -963,6 +1010,10 @@ if (!seal.ext.find('cyws')) {
     output += '\n· 语言 = 智力 = ' + getInt(ctx, '语言', 0);
     if (defaultWritten.length > 0) {
       output += '\n· 已写入' + defaultWritten.length + '项技能默认初始值（未加点技能也可用.ra检定）';
+    }
+
+    if (incResults.length > 0) {
+      output += '\n━━━━━━━━━━━━━━━━━━━━━━\n增量修改：\n· ' + incResults.join(' | ');
     }
 
     if (parsed.profession && PROFESSIONS[parsed.profession] && PROFESSIONS[parsed.profession].spell) {
@@ -1123,8 +1174,8 @@ if (!seal.ext.find('cyws')) {
     for (var i = 0; i < count; i++) {
       var str = roll(ctx, '3d6*5');
       var con = roll(ctx, '3d6*5');
-      var siz = roll(ctx, '3d6*5');
-      var int_ = roll(ctx, '3d6*5');
+      var siz = roll(ctx, '2d6*5+30');
+      var int_ = roll(ctx, '2d6*5+30');
       var pow = roll(ctx, '3d6*5');
       var dex = roll(ctx, '3d6*5');
       var app = roll(ctx, '3d6*5');
@@ -1755,6 +1806,74 @@ if (!seal.ext.find('cyws')) {
   };
   ext.cmdMap['法术列表'] = cmdSpellList;
 
+  // .法术创建 命令
+  var cmdCreateSpell = seal.ext.newCmdItemInfo();
+  cmdCreateSpell.name = '法术创建';
+  cmdCreateSpell.help = '📜 .法术创建 <名称> <品阶> [消耗] [时间] [效果] — 创建自创法术\n\n品阶必填：天(7点)/地(5点)/玄(3点)/黄(1点)/不入流(0点)\n消耗可选：如 5PP / 10灵气 / 5PP/20灵气（默认"按设定"）\n时间可选：即时/短时/长时/被动（默认"即时"）\n效果可选：剩余文本作为效果描述（默认"自定义法术"）\n\n例：.法术创建 火球术 玄 5PP 即时 向目标投掷火球\n例：.法术创建 护盾 黄 3PP 短时 形成灵气护盾\n例：.法术创建 被动天赋 不入流 被动 某种被动效果';
+  cmdCreateSpell.solve = function(ctx, msg, cmdArgs) {
+    var spellName = cmdArgs.getArgN(1);
+    var grade = cmdArgs.getArgN(2);
+    if (!spellName || !grade) {
+      seal.replyToSender(ctx, msg, '用法: .法术创建 <名称> <品阶> [消耗] [时间] [效果]\n品阶：天/地/玄/黄/不入流\n例：.法术创建 火球术 玄 5PP 即时 向目标投掷火球');
+      return seal.ext.newCmdExecuteResult(true);
+    }
+    if (!GRADE_COST.hasOwnProperty(grade)) {
+      seal.replyToSender(ctx, msg, '⚠️ 无效品阶: ' + grade + '\n可选：天(7点)/地(5点)/玄(3点)/黄(1点)/不入流(0点)');
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    var spellData = getSpells(ctx);
+    for (var ci = 0; ci < spellData.list.length; ci++) {
+      if (spellData.list[ci].name === spellName) {
+        seal.replyToSender(ctx, msg, '⚠️ 已存在同名法术: ' + spellName);
+        return seal.ext.newCmdExecuteResult(true);
+      }
+    }
+
+    var cost = cmdArgs.getArgN(3) || '按设定';
+    var time = cmdArgs.getArgN(4) || '即时';
+    var validTimes = ['即时', '短时', '长时', '被动'];
+    // 如果第4个参数不是有效时间，可能是效果描述的一部分
+    if (validTimes.indexOf(time) < 0) {
+      time = '即时';
+      cost = cmdArgs.getArgN(3) || '按设定';
+    }
+    // 效果描述：取剩余文本
+    var restArgs = cmdArgs.getRestArgsFrom(1).split(/\s+/);
+    var descStart = 2; // 跳过名称和品阶
+    if (restArgs.length > 2 && restArgs[2] && restArgs[2] !== '按设定') descStart = 3; // 跳过消耗
+    if (time !== '即时' || restArgs.length > 3) {
+      if (restArgs.length > 3 && validTimes.indexOf(restArgs[3]) >= 0) descStart = 4; // 跳过时间
+    }
+    var desc = restArgs.slice(descStart).join(' ') || '自定义法术';
+
+    var isPassive = time === '被动';
+    var gradeCost = GRADE_COST[grade] || 0;
+    if (!isPassive) {
+      var totalPts = calcSpellPts(getStr(ctx, '境界', '炼气'));
+      if (spellData.pointsUsed + gradeCost > totalPts) {
+        seal.replyToSender(ctx, msg, '⚠️ 法术点不足（当前已用' + spellData.pointsUsed + '/' + totalPts + '，需要' + gradeCost + '点）');
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      spellData.pointsUsed += gradeCost;
+    }
+
+    spellData.list.push({ name: spellName, grade: grade, cost: cost, time: time, desc: desc, custom: true });
+    setSpells(ctx, spellData);
+
+    var output = '✓ 创建法术：' + spellName + '（' + grade + '阶·' + time + '）\n';
+    output += '消耗：' + cost + '\n';
+    output += '效果：' + desc + '\n';
+    if (!isPassive) {
+      output += '法术点：' + spellData.pointsUsed + '/' + calcSpellPts(getStr(ctx, '境界', '炼气'));
+    } else {
+      output += '（被动法术，不占用法术点）';
+    }
+    seal.replyToSender(ctx, msg, output);
+    return seal.ext.newCmdExecuteResult(true);
+  };
+  ext.cmdMap['法术创建'] = cmdCreateSpell;
+
   // 5.17 .回复 / .制卡 / 速查命令
   var cmdRecover = seal.ext.newCmdItemInfo();
   cmdRecover.name = '回复';
@@ -1779,7 +1898,7 @@ if (!seal.ext.find('cyws')) {
   cmdCreate.help = '🎲 .制卡 — 引导式制卡\n\n一次完成：投掷7项属性+气运+灵气 + 掷1D8个人特点+1D20额外经历。\n完成后请在Excel角色卡中选择灵根/种族/境界/职业/技能/法术，再用.st录入。';
   cmdCreate.solve = function(ctx, msg, cmdArgs) {
     var output = '🎲 餐云卧石制卡\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
-    var attrExprs = [['力量','3d6*5'],['体质','3d6*5'],['体型','3d6*5'],['智力','3d6*5'],['意志','3d6*5'],['敏捷','3d6*5'],['外貌','3d6*5']];
+    var attrExprs = [['力量','3d6*5'],['体质','3d6*5'],['体型','2d6*5+30'],['智力','2d6*5+30'],['意志','3d6*5'],['敏捷','3d6*5'],['外貌','3d6*5']];
     for (var i = 0; i < attrExprs.length; i++) {
       output += attrExprs[i][0] + ':' + roll(ctx, attrExprs[i][1]) + ' ';
     }
