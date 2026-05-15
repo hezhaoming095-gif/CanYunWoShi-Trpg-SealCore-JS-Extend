@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         餐云卧石
 // @author       Asa阿沙
-// @version      1.0.1
+// @version      1.0.2
 // @description  《餐云卧石》BRP修仙规则插件——制卡投掷、技能检定、战斗伤害、灵气管理、法术施放
-// @timestamp    1778849419
+// @timestamp    1778824853
 // @diceRequireVer 1.4.0
 // @license      MIT
 // @homepageURL  https://github.com/hezhaoming095-gif/CanYunWoShi-Trpg-SealCore-JS-Extend
@@ -18,8 +18,8 @@ var template = {
   name: "cyws",
   fullName: "餐云卧石",
   authors: ["Asa阿沙 "],
-  version: "1.0.0",
-  updatedTime: "20260514",
+  version: "1.0.2",
+  updatedTime: "20260515",
   templateVer: "1.0",
 
   setConfig: {
@@ -437,7 +437,7 @@ if (!seal.ext.find('cyws')) {
     storageSetJSON('npcs_' + gid, npcs);
   }
 
-  // NPC属性解析：支持 力量50 和 DB=+1D4 两种格式
+  // NPC属性解析：支持 力量50、DB=+1D4、HP10/10 三种格式
   function parseNpcStats(text) {
     var stats = {};
     var tokens = text.split(/\s+/).filter(function(t) { return t.length > 0; });
@@ -445,10 +445,31 @@ if (!seal.ext.find('cyws')) {
       var t = tokens[i];
       var eqIdx = t.indexOf('=');
       if (eqIdx > 0) {
-        stats[t.substring(0, eqIdx)] = t.substring(eqIdx + 1);
+        var eqKey = t.substring(0, eqIdx);
+        var eqVal = t.substring(eqIdx + 1);
+        // 处理 HP=10/10 格式
+        var eqSlash = eqVal.indexOf('/');
+        if (eqSlash > 0) {
+          var eqCur = parseInt(eqVal.substring(0, eqSlash), 10);
+          var eqMax = parseInt(eqVal.substring(eqSlash + 1), 10);
+          if (!isNaN(eqCur) && !isNaN(eqMax) && String(eqCur) === eqVal.substring(0, eqSlash) && String(eqMax) === eqVal.substring(eqSlash + 1)) {
+            stats[eqKey] = eqCur;
+            stats['最大' + eqKey] = eqMax;
+            continue;
+          }
+        }
+        stats[eqKey] = eqVal;
         continue;
       }
-      var numMatch = t.match(/^(.+)(\d+)$/);
+      // 处理 HP10/10 格式（当前值/最大值）
+      var slashMatch = t.match(/^([^\d]+)(\d+)\/(\d+)$/);
+      if (slashMatch && slashMatch[1].length > 0) {
+        stats[slashMatch[1]] = parseInt(slashMatch[2], 10);
+        stats['最大' + slashMatch[1]] = parseInt(slashMatch[3], 10);
+        continue;
+      }
+      // 处理 力量50 格式（[^\d]+ 确保名称不含数字，避免贪婪匹配问题）
+      var numMatch = t.match(/^([^\d]+)(\d+)$/);
       if (numMatch && numMatch[1].length > 0) {
         stats[numMatch[1]] = parseInt(numMatch[2], 10);
         continue;
@@ -851,6 +872,13 @@ if (!seal.ext.find('cyws')) {
     + '.法术列表              查看已学法术\n'
     + '  → 显示品阶/消耗/施放时间 + 法术点使用情况\n'
     + '\n'
+    + '.法术删除 <法术名>     遗忘已学法术并退还法术点\n'
+    + '  → 被动法术不退还法术点\n'
+    + '  → 例：.法术删除 火球术（别名：.法术遗忘）\n'
+    + '\n'
+    + '.武器删除 <武器名>     删除角色武器\n'
+    + '  → 例：.武器删除 本命剑（别名：.武器移除）\n'
+    + '\n'
     + '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
     + '📖 速查指令\n'
     + '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
@@ -871,7 +899,8 @@ if (!seal.ext.find('cyws')) {
     + '.npc <名称> 受伤 <数值>        NPC受伤\n'
     + '.npc <名称> hp <+/-数值>       NPC HP增减\n'
     + '.npc <名称> 灵气 <+/-数值>     NPC灵气增减\n'
-    + '.npc <名称> 武器 <名> <公式>   NPC武器\n'
+    + '.npc <名称> 武器 <名> <公式>   NPC武器添加\n'
+    + '.npc <名称> 武器 del <名>      NPC武器删除\n'
     + '.npc <名称> st                  查看NPC属性\n'
     + '.npc <名称> 标记 <+名/-名>     NPC状态标记\n'
     + '.npc <名称> del                 删除NPC\n'
@@ -1729,6 +1758,35 @@ if (!seal.ext.find('cyws')) {
   };
   ext.cmdMap['成长'] = cmdGrow;
 
+  // .武器删除 命令
+  var cmdWeaponDel = seal.ext.newCmdItemInfo();
+  cmdWeaponDel.name = '武器删除';
+  cmdWeaponDel.help = '⚔️ .武器删除 <武器名> — 删除角色武器\n\n从角色卡中移除指定武器。\n\n例：.武器删除 本命剑\n别名：.武器移除';
+  cmdWeaponDel.solve = function(ctx, msg, cmdArgs) {
+    var wName = cmdArgs.getArgN(1);
+    if (!wName) {
+      seal.replyToSender(ctx, msg, '用法: .武器删除 <武器名>\n使用 .st 查看 当前武器列表');
+      return seal.ext.newCmdExecuteResult(true);
+    }
+    var meta = getMeta(ctx);
+    if (!meta.weapons || !meta.weapons[wName]) {
+      var wKeys = meta.weapons ? Object.keys(meta.weapons) : [];
+      if (wKeys.length === 0) {
+        seal.replyToSender(ctx, msg, '⚠️ 当前没有录入任何武器');
+      } else {
+        seal.replyToSender(ctx, msg, '⚠️ 未找到武器: ' + wName + '\n已有武器：' + wKeys.join('、'));
+      }
+      return seal.ext.newCmdExecuteResult(true);
+    }
+    var removedFormula = meta.weapons[wName];
+    delete meta.weapons[wName];
+    setMeta(ctx, meta);
+    seal.replyToSender(ctx, msg, '✓ 已删除武器：' + wName + ' (' + removedFormula + ')');
+    return seal.ext.newCmdExecuteResult(true);
+  };
+  ext.cmdMap['武器删除'] = cmdWeaponDel;
+  ext.cmdMap['武器移除'] = cmdWeaponDel;
+
   // 5.16 .法术学习 / .法术列表
   var cmdLearnSpell = seal.ext.newCmdItemInfo();
   cmdLearnSpell.name = '法术学习';
@@ -1874,6 +1932,49 @@ if (!seal.ext.find('cyws')) {
   };
   ext.cmdMap['法术创建'] = cmdCreateSpell;
 
+  // .法术删除 命令
+  var cmdDeleteSpell = seal.ext.newCmdItemInfo();
+  cmdDeleteSpell.name = '法术删除';
+  cmdDeleteSpell.help = '📜 .法术删除 <法术名> — 遗忘已学法术\n\n删除指定法术并退还法术点（被动法术不退还）。\n\n例：.法术删除 火球术\n别名：.法术遗忘';
+  cmdDeleteSpell.solve = function(ctx, msg, cmdArgs) {
+    var spellName = cmdArgs.getArgN(1);
+    if (!spellName) {
+      seal.replyToSender(ctx, msg, '用法: .法术删除 <法术名>');
+      return seal.ext.newCmdExecuteResult(true);
+    }
+    var spellData = getSpells(ctx);
+    var foundIdx = -1;
+    for (var di = 0; di < spellData.list.length; di++) {
+      if (spellData.list[di].name === spellName) {
+        foundIdx = di;
+        break;
+      }
+    }
+    if (foundIdx < 0) {
+      seal.replyToSender(ctx, msg, '⚠️ 未学会此法术: ' + spellName);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+    var removed = spellData.list.splice(foundIdx, 1)[0];
+    var isPassive = removed.time === '被动';
+    if (!isPassive) {
+      var refund = GRADE_COST[removed.grade] || 0;
+      spellData.pointsUsed = Math.max(spellData.pointsUsed - refund, 0);
+    }
+    setSpells(ctx, spellData);
+    var totalPts = calcSpellPts(getStr(ctx, '境界', '炼气'));
+    var outDel = '✓ 遗忘法术：' + removed.name + '（' + removed.grade + '阶）\n';
+    if (isPassive) {
+      outDel += '（被动法术，不退还法术点）\n';
+    } else {
+      outDel += '已退还 ' + (GRADE_COST[removed.grade] || 0) + ' 点法术点\n';
+    }
+    outDel += '法术点：' + totalPts + '中已用' + spellData.pointsUsed + '，剩余' + (totalPts - spellData.pointsUsed);
+    seal.replyToSender(ctx, msg, outDel);
+    return seal.ext.newCmdExecuteResult(true);
+  };
+  ext.cmdMap['法术删除'] = cmdDeleteSpell;
+  ext.cmdMap['法术遗忘'] = cmdDeleteSpell;
+
   // 5.17 .回复 / .制卡 / 速查命令
   var cmdRecover = seal.ext.newCmdItemInfo();
   cmdRecover.name = '回复';
@@ -1991,7 +2092,7 @@ if (!seal.ext.find('cyws')) {
   // 5.19 .npc 命令（KP NPC管理）
   var cmdNpc = seal.ext.newCmdItemInfo();
   cmdNpc.name = 'npc';
-  cmdNpc.help = '🎭 .npc — NPC管理（KP专用）\n\n创建和管理NPC，无需切换角色卡即可为NPC检定/攻击/受伤。\n\n创建/更新：.npc add <名称> <属性值...>\n  例：.npc add 小兵A 力量50 体质40 闪避30 HP10 最大HP10 护甲2\n  DB/ADB等用=号：.npc add BossA 力量80 体型70 HP20 DB=+1D6 ADB=2D4\n\n检定：.npc <名称> ra <技能> [数值]\n  例：.npc 小兵A ra 闪避\n  例：.npc 小兵A ra 闪避 30（手动指定技能值）\n\n攻击：.npc <名称> 攻击 [技能] [数值]\n  例：.npc 小兵A 攻击 战斗:体\n\n受伤：.npc <名称> 受伤 <数值>\n  例：.npc 小兵A 受伤 8\n\nHP：.npc <名称> hp <+/-数值>\n灵气：.npc <名称> 灵气 <+/-数值>\n武器：.npc <名称> 武器 <武器名> <公式>\n  例：.npc 小兵A 武器 大刀 1d8+1d4\n\n查看：.npc <名称> st\n标记：.npc <名称> 标记 <+名称/-名称>\n删除：.npc <名称> del\n列表：.npc list\n清空：.npc clear\n帮助：.npc help';
+  cmdNpc.help = '🎭 .npc — NPC管理（KP专用）\n\n创建和管理NPC，无需切换角色卡即可为NPC检定/攻击/受伤。\n\n创建/更新：.npc add <名称> <属性值...>\n  例：.npc add 小兵A 力量50 体质40 闪避30 HP10 最大HP10 护甲2\n  DB/ADB等用=号：.npc add BossA 力量80 体型70 HP20 DB=+1D6 ADB=2D4\n\n检定：.npc <名称> ra <技能> [数值]\n  例：.npc 小兵A ra 闪避\n  例：.npc 小兵A ra 闪避 30（手动指定技能值）\n\n攻击：.npc <名称> 攻击 [技能] [数值]\n  例：.npc 小兵A 攻击 战斗:体\n\n受伤：.npc <名称> 受伤 <数值>\n  例：.npc 小兵A 受伤 8\n\nHP：.npc <名称> hp <+/-数值>\n灵气：.npc <名称> 灵气 <+/-数值>\n武器添加：.npc <名称> 武器 <武器名> <公式>\n  例：.npc 小兵A 武器 大刀 1d8+1d4\n武器删除：.npc <名称> 武器 del <武器名>\n  例：.npc 小兵A 武器 del 大刀\n\n查看：.npc <名称> st\n标记：.npc <名称> 标记 <+名称/-名称>\n删除：.npc <名称> del\n列表：.npc list\n清空：.npc clear\n帮助：.npc help';
   cmdNpc.solve = function(ctx, msg, cmdArgs) {
     var text = cmdArgs.getRestArgsFrom(1);
     if (!text || text.trim() === '') {
@@ -2248,10 +2349,35 @@ if (!seal.ext.find('cyws')) {
 
     // --- NPC武器 ---
     if (action === '武器') {
+      var wSubAction = tokens[2];
+      // 武器删除
+      if (wSubAction === 'del' || wSubAction === '删除') {
+        var wDelName = tokens[3];
+        if (!wDelName) {
+          var wListNpc = npc.weapons ? Object.keys(npc.weapons) : [];
+          if (wListNpc.length === 0) {
+            seal.replyToSender(ctx, msg, npcName + ' 没有武器');
+          } else {
+            seal.replyToSender(ctx, msg, '用法: .npc ' + npcName + ' 武器 del <武器名>\n已有武器：' + wListNpc.join('、'));
+          }
+          return seal.ext.newCmdExecuteResult(true);
+        }
+        if (!npc.weapons || !npc.weapons[wDelName]) {
+          var wKeysNpc = npc.weapons ? Object.keys(npc.weapons) : [];
+          seal.replyToSender(ctx, msg, '⚠️ 未找到武器: ' + wDelName + '\n已有武器：' + (wKeysNpc.length > 0 ? wKeysNpc.join('、') : '无'));
+          return seal.ext.newCmdExecuteResult(true);
+        }
+        var wRemovedFormula = npc.weapons[wDelName];
+        delete npc.weapons[wDelName];
+        setNpcs(ctx, npcs);
+        seal.replyToSender(ctx, msg, '✓ ' + npcName + ' 已删除武器：' + wDelName + ' (' + wRemovedFormula + ')');
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      // 武器添加
       var wName = tokens[2];
       var wFormula = tokens.slice(3).join(' ');
       if (!wName || !wFormula) {
-        seal.replyToSender(ctx, msg, '用法: .npc ' + npcName + ' 武器 <名称> <公式>\n例: .npc ' + npcName + ' 武器 大刀 1d8+1d4');
+        seal.replyToSender(ctx, msg, '用法: .npc ' + npcName + ' 武器 <名称> <公式>\n删除: .npc ' + npcName + ' 武器 del <名称>\n例: .npc ' + npcName + ' 武器 大刀 1d8+1d4');
         return seal.ext.newCmdExecuteResult(true);
       }
       npc.weapons = npc.weapons || {};
