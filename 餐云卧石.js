@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         餐云卧石
 // @author       Asa阿沙
-// @version      1.0.0
+// @version      1.0.1
 // @description  《餐云卧石》BRP修仙规则插件——制卡投掷、技能检定、战斗伤害、灵气管理、法术施放
-// @timestamp    1747100000
+// @timestamp    1778849419
 // @diceRequireVer 1.4.0
 // @license      MIT
 // @homepageURL  https://github.com/hezhaoming095-gif/CanYunWoShi-Trpg-SealCore-JS-Extend
