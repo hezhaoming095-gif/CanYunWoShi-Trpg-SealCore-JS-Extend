@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         餐云卧石
 // @author       Asa阿沙
-// @version      1.0.4
+// @version      1.0.6
 // @description  《餐云卧石》BRP修仙规则插件——制卡投掷、技能检定、战斗伤害、灵气管理、法术施放
-// @timestamp    1778880118
+// @timestamp    1779193886
 // @diceRequireVer 1.4.0
 // @license      MIT
 // @homepageURL  https://github.com/hezhaoming095-gif/CanYunWoShi-Trpg-SealCore-JS-Extend
@@ -127,67 +127,67 @@ if (!seal.ext.find('cyws')) {
   // ──────────────────────────────
 
   var SPIRIT_ROOTS = {
-    '金': { stat: '敏捷', bonus: 5, variant: '音' },
-    '木': { stat: '体质', bonus: 5, variant: '花' },
-    '水': { stat: '智力', bonus: 5, variant: '幻' },
-    '火': { stat: '力量', bonus: 5, variant: '电' },
-    '土': { stat: '意志', bonus: 5, variant: '幽冥' },
-    '音': { stat: null, bonus: 0, isVariant: true, parent: '金', desc: '伤害无视护甲' },
-    '花': { stat: null, bonus: 0, isVariant: true, parent: '木', desc: '消耗回合调整行动顺序' },
-    '幻': { stat: null, bonus: 0, isVariant: true, parent: '水', desc: '猜测骰子结果获得额外回合' },
-    '电': { stat: null, bonus: 0, isVariant: true, parent: '火', desc: '体质检定追加不可闪避攻击' },
-    '幽冥': { stat: null, bonus: 0, isVariant: true, parent: '土', desc: '消耗灵气治疗他人' },
-    '血': { stat: null, bonus: 0, isDemonic: true, desc: '伤害回血/杀敌回灵气' },
-    '毒': { stat: null, bonus: 0, isDemonic: true, desc: '免疫毒/攻击范围体质检定' },
-    '气': { stat: null, bonus: 0, isDemonic: true, desc: '分配10属性/吸取意志灵气' }
+    '金': { stat: '敏捷', bonus: 5, variant: '音', desc: '凌冽攻击方式，剑修刀修等以兵器入道。DEX+5' },
+    '木': { stat: '体质', bonus: 5, variant: '花', desc: '保守防守或高效治疗，医修偃师等与生命相关。CON+5' },
+    '水': { stat: '智力', bonus: 5, variant: '幻', desc: '持续或灵动攻击与治疗，灵力运用细微多变。INT+5' },
+    '火': { stat: '力量', bonus: 5, variant: '电', desc: '爆发性攻击，如符师般爆发灵力。STR+5' },
+    '土': { stat: '意志', bonus: 5, variant: '幽冥', desc: '坚韧防守或隐秘攻击，善于等待时机。POW+5' },
+    '音': { stat: null, bonus: 0, isVariant: true, parent: '金', desc: '丝竹管弦或兵器铿锵之音，须依靠器物作媒介外泄灵力，伤害无视护甲' },
+    '花': { stat: null, bonus: 0, isVariant: true, parent: '木', desc: '遮掩、扰乱，绮丽外表下隐藏攻击/辅助/干扰。消耗自己回合让后续角色提前或后移1-2位次' },
+    '幻': { stat: null, bonus: 0, isVariant: true, parent: '水', desc: '虚幻、梦境、安抚，灵气灵动多变可制造幻觉。投骰前可消耗2倍技能点灵力猜测结果等级，猜对获得额外回合' },
+    '电': { stat: null, bonus: 0, isVariant: true, parent: '火', desc: '雷电、爆炸，灵气狂暴紊乱，体质检定失败承受1d6+ADB伤害。攻击成功后可体质检定，成功追加不可闪避攻击' },
+    '幽冥': { stat: null, bonus: 0, isVariant: true, parent: '土', desc: '鬼魂、轮回、地府，多由土灵根转变而来。消耗2n灵气+某人2n HP恢复另一人n HP（战斗轮需消耗回合）' },
+    '血': { stat: null, bonus: 0, isDemonic: true, desc: '精血、血肉、骨头。无法接受治疗法术，造成伤害恢复1d12 HP，杀敌获得1/5 HP灵气。rd6天未杀人则狂暴' },
+    '毒': { stat: null, bonus: 0, isDemonic: true, desc: '污毒、污秽、不净之物。免疫任何毒药，攻击范围内除毒灵根外所有人需体质检定，失败中毒rd3回合，可叠加' },
+    '气': { stat: null, bonus: 0, isDemonic: true, desc: '精气、灵魂、修为。自行分配10点属性，成功使用气灵根灵气可吸取对方1/5意志灵气。因气灵根死者无法入轮回' }
   };
 
   var RACES = {
-    '人族': { bonuses: { '地位': 5 }, desc: '人丁兴盛' },
-    '鲛人': { bonuses: { '游泳': 30 }, desc: '水居如鱼' },
-    '羽民': { bonuses: { '飞行': 30 }, desc: '乘风' },
-    '半妖': { qiBonus: '1d3*5', desc: '妖力' },
-    '鬼魂': { special: '不受未附加灵气实体攻击伤害，火/电双倍伤害', desc: '魂魄' },
-    '鬼修': { special: 'HP=0，1/2HP加到灵气上，灵气视为HP', hpToQi: true, desc: '魂体' },
-    '妖':   { special: '妖形+n属性(≤20)，妖丹离体全属性+5技能+10%', freePoints: 20, desc: '妖形/妖丹' },
-    '怪':   { special: '自由分配25点', freePoints: 25, desc: '天生灵怪' },
-    '灵':   { special: '自由分配30点，每日恢复灵气+r3d6', freePoints: 30, desc: '天生灵怪/灵气' }
+    '人族': { bonuses: { '地位': 5 }, desc: '人丁兴盛', special: '道教背景修仙世族、宗门、国家组成人口，声名威信更易广泛传播，地位+5%' },
+    '鲛人': { bonuses: { '游泳': 30 }, desc: '水居如鱼', special: '水下自由呼吸，游泳+30%，水中DEX+5。又称泉客，可化人形但不能长期离水' },
+    '羽民': { bonuses: { '飞行': 30 }, desc: '乘风', special: '天生飞行能力，飞行+30%。生于山野之国，背后生双翅，大多白发红颜' },
+    '半妖': { qiBonus: '1d3*5', desc: '妖力', special: '灵气+1d3*5，修炼上更有优势。金丹前可能因灵气失控显露妖族特征或变为妖族' },
+    '鬼魂': { special: '不受未附加灵气实体攻击伤害，火/电灵气双倍伤害。一旦意识到死亡或执念消散则归于轮回；强力攻击也会令灵气消散，再无轮回', desc: '魂魄' },
+    '鬼修': { special: 'HP=0，1/2HP加到灵气上，灵气视为HP。不受未附加灵气实体攻击伤害，无法得到任何治疗，每日恢复灵气减半，火/电灵气双倍伤害。可接触鬼魂', hpToQi: true, desc: '魂体' },
+    '妖': { special: '妖形：n≤20点属性加成(视原形态)，战斗中切换形态消耗一回合。妖丹离体：全属性+5、技能+10%，妖丹可被攻击(攻击者需困难成功对应技能)，继承1/5HP，妖丹破碎则HP上限减半，战斗中妖丹无法恢复HP，取出后无法归体直到战斗结束', freePoints: 20, desc: '妖形/妖丹' },
+    '怪': { special: '天生灵怪：属性仅通过roll点决定，职业和灵根无法改变属性，之后获得25点可自由分配(除灵气外最高90)。可选任一种族一个能力。不能生育，不可入轮回，死亡后化为灵气归于天地', freePoints: 25, desc: '天生灵怪' },
+    '灵': { special: '天生灵怪：属性仅通过roll点决定，职业和灵根无法改变属性，之后获得30点可自由分配(除灵气外最高90)。可选十三种灵根中的任意一种(含魔修灵根)。每日恢复灵气+r3d6。与天地同寿但飞升困难', freePoints: 30, desc: '天生灵怪/灵气' }
   };
 
   var REALMS = {
-    '炼气': { adb: '0',    spellPts: 3 },
-    '筑基': { adb: '1D4',  spellPts: 4 },
-    '金丹': { adb: '2D4',  spellPts: 6 },
-    '元婴': { adb: '3D4',  spellPts: 8 },
-    '化神': { adb: '3D6',  spellPts: 10 },
-    '大乘': { adb: '4D8',  spellPts: 12 }
+    '炼气': { adb: '0', spellPts: 3 },
+    '筑基': { adb: '1D4', spellPts: 4 },
+    '金丹': { adb: '2D4', spellPts: 6 },
+    '元婴': { adb: '3D4', spellPts: 8 },
+    '化神': { adb: '3D6', spellPts: 10 },
+    '大乘': { adb: '4D8', spellPts: 12 }
   };
 
   var GRADE_COST = { '天': 7, '地': 5, '玄': 3, '黄': 1, '不入流': 0 };
 
   var PROFESSIONS = {
-    '蛊师': { category: '阴', spiritRoots: ['水','土','花','幻','幽冥'], skills: ['巫蛊','杂学','追踪','急救','地位','灵力控制','感知','侦查','战斗:灵'], freeSkill: 1, spell: { name: '蛊术', time: '短时/长时', check: '巫蛊', needGrade: true } },
-    '吊魂师': { category: '阴', spiritRoots: ['木','花','土','幽冥'], skills: ['通灵','医术','地位','灵力控制','闪避','卜卦','话术','感知'], freeSkill: 2, spell: { name: '吊魂', time: '即时', check: 'POW对抗(可选)', needGrade: true } },
-    '活无常': { category: '阴', spiritRoots: ['金','木','水','火','土','音','花','幻','电','幽冥'], skills: ['通灵','战斗:器','地位','掩护','查阅资料','灵力控制'], extraCombat: 2, freeSkill: 1, spell: { name: '勾魂', time: '即时', check: null, needGrade: true } },
-    '医修': { category: '阳', spiritRoots: ['水','木','幻'], skills: ['医术','炼丹','感知','地位','灵力控制','查阅资料','说服','符道','侦查','杂学'], freeSkill: 0, spell: { name: '杏林', time: '即时/短时/长时', check: null, needGrade: true } },
-    '偃师': { category: '阳', spiritRoots: ['金','木','水','火','土','音','花','幻','电','幽冥'], skills: ['艺术:其他','灵力控制','炼器','符道','估价','杂学','妙手','地位','战斗:器'], freeSkill: 1, spell: { name: '傀儡法术', time: '即时', check: '灵力控制', needGrade: true } },
-    '丹青师': { category: '阳', spiritRoots: ['金','木','水','火','土','音','花','幻','电','幽冥'], skills: ['艺术:乐理','艺术:丹青','通灵','灵力控制','地位','感知','杂学','战斗:灵','洞察'], freeSkill: 1, spell: { name: '附灵', time: '即时/短时/长时', check: null, needGrade: true } },
-    '兵修': { category: '兵', spiritRoots: ['金','火','电','幻','水'], skills: ['战斗:器','灵力控制','洞察','功法','飞行','地位','闪避','传音','潜行'], freeSkill: 1, spell: { name: '兵戈', time: '即时', check: null, needGrade: true } },
-    '乐师': { category: '兵', spiritRoots: ['音','幻','花'], skills: ['艺术:乐理','灵力控制','地位','感知','查阅资料','幻术','传音','阵道','表演'], freeSkill: 1, spell: { name: '五音', time: '短时', check: null, needGrade: true } },
-    '铸器师': { category: '兵', spiritRoots: ['火','电','金','土'], skills: ['炼器','杂学','侦查','聆听','地位','查阅资料','估价'], extraCombat: 1, freeSkill: 2, spell: { name: '铸器', time: '被动/即时', check: null, needGrade: true } },
-    '符师': { category: '术', spiritRoots: ['金','木','水','火','土','音','花','幻','电','幽冥'], skills: ['符道','感知','灵力控制','地位','卜卦','飞行','通灵'], extraCombat: 1, freeSkill: 1, spell: { name: '画符', time: '被动', check: null, needGrade: false } },
-    '阵师': { category: '术', spiritRoots: ['花','水','幻','土','幽冥'], skills: ['阵道','感知','灵力控制','地位','卜卦','战斗:灵','侦查','查阅资料','掩护','幻术'], freeSkill: 0, spell: { name: '画阵', time: '被动', check: null, needGrade: false } },
-    '御兽师': { category: '术', spiritRoots: ['金','木','水','火','土'], skills: ['御兽','灵力控制','地位','战斗:器','查阅资料','侦查','聆听','通灵','炼丹'], freeSkill: 1, spell: { name: '兽心通', time: '被动', check: null, needGrade: false } },
-    '蜃师': { category: '术', spiritRoots: ['水','幻','幽冥'], skills: ['幻术','通灵','灵力控制','战斗:灵','地位','话术','潜行','洞察','感知'], freeSkill: 1, spell: { name: '蜃梦', time: '短时/长时', check: null, needGrade: true } },
-    '仙商': { category: '非常规', spiritRoots: ['金','木','水','火','土','音','花','幻','电','幽冥'], skills: ['估价','谈判','话术','地位','导航','查阅资料','杂学'], freeSkill: 3, spell: { name: '诱导', time: '被动', check: null, needGrade: false } },
-    '灵植师': { category: '非常规', spiritRoots: ['木','土','花'], skills: ['灵力控制','炼丹','感知','急救','杂学','地位','通灵','庖厨'], freeSkill: 2, spell: { name: '草木通', time: '被动', check: null, needGrade: false } },
-    '灵厨': { category: '非常规', spiritRoots: ['金','木','水','火','土','音','花','幻','电','幽冥'], skills: ['庖厨','杂学','灵力控制','地位','急救','感知','查阅资料'], freeSkill: 3, spell: { name: '食鲜', time: '被动', check: null, needGrade: false } },
-    '游方道人': { category: '非常规', spiritRoots: ['金','木','水','火','土','音','花','幻','电','幽冥'], skills: ['艺术:其他','战斗:灵','灵力控制','感知','地位','飞行','洞察','伪装'], freeSkill: 2, spell: { name: '天问', time: '自定义', check: null, needGrade: true } },
-    '合欢道人': { category: '邪道', spiritRoots: ['水','幻','气'], skills: ['邪术','灵力控制','地位','洞察','伪装','幻术','话术','功法'], freeSkill: 2, spell: { name: '暖香', time: '短时/长时', check: null, needGrade: true } },
-    '毒修': { category: '邪道', spiritRoots: ['金','木','水','火','土','音','花','幻','电','毒'], skills: ['邪术','医术','蛊术','通灵','感知','卜卦'], extraCombat: 1, freeSkill: 2, spell: { name: '邪祟', time: '即时/短时/长时', check: null, needGrade: true } },
-    '血修': { category: '邪道', spiritRoots: ['火','土','幽冥','金','血'], skills: ['邪术','急救'], extraCombat: 2, freeSkill: 2, spell: { name: '心火', time: '即时/短时/长时', check: null, needGrade: true } },
-    '摄魂鬼': { category: '邪道', spiritRoots: ['金','木','水','火','土','音','花','幻','电','气'], skills: ['邪术','潜行','追踪','地位','通灵','感知','掩护'], extraCombat: 1, freeSkill: 0, extraSkills: ['伪装','闪避'], spell: { name: '摄魂', time: '短时/长时', check: 'POW', needGrade: true } },
-    '告死人': { category: '邪道', spiritRoots: ['金','木','水','火','土','音','花','幻','电','幽冥','血','毒','气'], skills: ['邪术','通灵','灵力控制','功法','地位'], extraCombat: 1, freeSkill: 4, spell: { name: '告死', time: '被动', check: null, needGrade: false } }
+    '蛊师': { category: '阴', spiritRoots: ['水', '土', '花', '幻', '幽冥'], skills: ['巫蛊', '杂学', '追踪', '急救', '地位', '灵力控制', '感知', '侦查', '战斗:灵'], freeSkill: 1, spell: { name: '蛊术', time: '短时/长时', check: '巫蛊', needGrade: true } },
+    '吊魂师': { category: '阴', spiritRoots: ['木', '花', '土', '幽冥'], skills: ['通灵', '医术', '地位', '灵力控制', '闪避', '卜卦', '话术', '感知'], freeSkill: 2, spell: { name: '吊魂', time: '即时', check: 'POW对抗(可选)', needGrade: true } },
+    '活无常': { category: '阴', spiritRoots: ['金', '木', '水', '火', '土', '音', '花', '幻', '电', '幽冥'], skills: ['通灵', '战斗:器', '地位', '掩护', '查阅资料', '灵力控制'], extraCombat: 2, freeSkill: 1, spell: { name: '勾魂', time: '即时', check: null, needGrade: true } },
+    '医修': { category: '阳', spiritRoots: ['水', '木', '幻'], skills: ['医术', '炼丹', '感知', '地位', '灵力控制', '查阅资料', '说服', '符道', '侦查', '杂学'], freeSkill: 0, spell: { name: '杏林', time: '即时/短时/长时', check: null, needGrade: true } },
+    '偃师': { category: '阳', spiritRoots: ['金', '木', '水', '火', '土', '音', '花', '幻', '电', '幽冥'], skills: ['艺术:其他', '灵力控制', '炼器', '符道', '估价', '杂学', '妙手', '地位', '战斗:器'], freeSkill: 1, spell: { name: '傀儡法术', time: '即时', check: '灵力控制', needGrade: true } },
+    '丹青师': { category: '阳', spiritRoots: ['金', '木', '水', '火', '土', '音', '花', '幻', '电', '幽冥'], skills: ['艺术:乐理', '艺术:丹青', '通灵', '灵力控制', '地位', '感知', '杂学', '战斗:灵', '洞察'], freeSkill: 1, spell: { name: '附灵', time: '即时/短时/长时', check: null, needGrade: true } },
+    '兵修': { category: '兵', spiritRoots: ['金', '火', '电', '幻', '水'], skills: ['战斗:器', '灵力控制', '洞察', '功法', '飞行', '地位', '闪避', '传音', '潜行'], freeSkill: 1, spell: { name: '兵戈', time: '即时', check: null, needGrade: true } },
+    '乐师': { category: '兵', spiritRoots: ['音', '幻', '花'], skills: ['艺术:乐理', '灵力控制', '地位', '感知', '查阅资料', '幻术', '传音', '阵道', '表演'], freeSkill: 1, spell: { name: '五音', time: '短时', check: null, needGrade: true } },
+    '铸器师': { category: '兵', spiritRoots: ['火', '电', '金', '土'], skills: ['炼器', '杂学', '侦查', '聆听', '地位', '查阅资料', '估价'], extraCombat: 1, freeSkill: 2, spell: { name: '铸器', time: '被动/即时', check: null, needGrade: true } },
+    '符师': { category: '术', spiritRoots: ['金', '木', '水', '火', '土', '音', '花', '幻', '电', '幽冥'], skills: ['符道', '感知', '灵力控制', '地位', '卜卦', '飞行', '通灵'], extraCombat: 1, freeSkill: 1, spell: { name: '画符', time: '被动', check: null, needGrade: false } },
+    '阵师': { category: '术', spiritRoots: ['花', '水', '幻', '土', '幽冥'], skills: ['阵道', '感知', '灵力控制', '地位', '卜卦', '战斗:灵', '侦查', '查阅资料', '掩护', '幻术'], freeSkill: 0, spell: { name: '画阵', time: '被动', check: null, needGrade: false } },
+    '御兽师': { category: '术', spiritRoots: ['金', '木', '水', '火', '土'], skills: ['御兽', '灵力控制', '地位', '战斗:器', '查阅资料', '侦查', '聆听', '通灵', '炼丹'], freeSkill: 1, spell: { name: '兽心通', time: '被动', check: null, needGrade: false } },
+    '蜃师': { category: '术', spiritRoots: ['水', '幻', '幽冥'], skills: ['幻术', '通灵', '灵力控制', '战斗:灵', '地位', '话术', '潜行', '洞察', '感知'], freeSkill: 1, spell: { name: '蜃梦', time: '短时/长时', check: null, needGrade: true } },
+    '仙商': { category: '非常规', spiritRoots: ['金', '木', '水', '火', '土', '音', '花', '幻', '电', '幽冥'], skills: ['估价', '谈判', '话术', '地位', '导航', '查阅资料', '杂学'], freeSkill: 3, spell: { name: '诱导', time: '被动', check: null, needGrade: false } },
+    '灵植师': { category: '非常规', spiritRoots: ['木', '土', '花'], skills: ['灵力控制', '炼丹', '感知', '急救', '杂学', '地位', '通灵', '庖厨'], freeSkill: 2, spell: { name: '草木通', time: '被动', check: null, needGrade: false } },
+    '灵厨': { category: '非常规', spiritRoots: ['金', '木', '水', '火', '土', '音', '花', '幻', '电', '幽冥'], skills: ['庖厨', '杂学', '灵力控制', '地位', '急救', '感知', '查阅资料'], freeSkill: 3, spell: { name: '食鲜', time: '被动', check: null, needGrade: false } },
+    '游方道人': { category: '非常规', spiritRoots: ['金', '木', '水', '火', '土', '音', '花', '幻', '电', '幽冥'], skills: ['艺术:其他', '战斗:灵', '灵力控制', '感知', '地位', '飞行', '洞察', '伪装'], freeSkill: 2, spell: { name: '天问', time: '自定义', check: null, needGrade: true } },
+    '合欢道人': { category: '邪道', spiritRoots: ['水', '幻', '气'], skills: ['邪术', '灵力控制', '地位', '洞察', '伪装', '幻术', '话术', '功法'], freeSkill: 2, spell: { name: '暖香', time: '短时/长时', check: null, needGrade: true } },
+    '毒修': { category: '邪道', spiritRoots: ['金', '木', '水', '火', '土', '音', '花', '幻', '电', '毒'], skills: ['邪术', '医术', '蛊术', '通灵', '感知', '卜卦'], extraCombat: 1, freeSkill: 2, spell: { name: '邪祟', time: '即时/短时/长时', check: null, needGrade: true } },
+    '血修': { category: '邪道', spiritRoots: ['火', '土', '幽冥', '金', '血'], skills: ['邪术', '急救'], extraCombat: 2, freeSkill: 2, spell: { name: '心火', time: '即时/短时/长时', check: null, needGrade: true } },
+    '摄魂鬼': { category: '邪道', spiritRoots: ['金', '木', '水', '火', '土', '音', '花', '幻', '电', '气'], skills: ['邪术', '潜行', '追踪', '地位', '通灵', '感知', '掩护'], extraCombat: 1, freeSkill: 0, extraSkills: ['伪装', '闪避'], spell: { name: '摄魂', time: '短时/长时', check: 'POW', needGrade: true } },
+    '告死人': { category: '邪道', spiritRoots: ['金', '木', '水', '火', '土', '音', '花', '幻', '电', '幽冥', '血', '毒', '气'], skills: ['邪术', '通灵', '灵力控制', '功法', '地位'], extraCombat: 1, freeSkill: 4, spell: { name: '告死', time: '被动', check: null, needGrade: false } }
   };
 
   var PRESET_SPELLS = {
@@ -201,28 +201,28 @@ if (!seal.ext.find('cyws')) {
     '凝神诀': { grade: '黄', cost: '5灵气', time: '即时', limit: '无', desc: '提高自身注意力，下次侦察类技能出目-5%。' },
     '净衣术': { grade: '不入流', cost: '1灵气', time: '即时', limit: '无', desc: '清洁衣物的日常法术。' },
     '避水术': { grade: '不入流', cost: '1灵气', time: '即时', limit: '无', desc: '避水的日常法术。' },
-    '蛊术':     { grade: '自定义', cost: '按设定', time: '短时/长时', limit: '蛊师', check: '巫蛊', desc: '蛊师的攻击方式，一般为咒术或蛊虫，需进行巫蛊判定。' },
-    '吊魂':     { grade: '自定义', cost: '按设定', time: '即时', limit: '吊魂师', desc: '对魂魄受损之人的治疗，使用时需对象无意识或同意，否则需POW对抗。' },
-    '勾魂':     { grade: '自定义', cost: '按设定', time: '即时', limit: '活无常', desc: '攻击、拘束魂魄的法术统称，对无肉体鬼魂/鬼修更致命。' },
-    '杏林':     { grade: '自定义', cost: '按设定', time: '即时/短时/长时', limit: '医修', desc: '治愈性法术的基本统称，形式因人而异。' },
+    '蛊术': { grade: '自定义', cost: '按设定', time: '短时/长时', limit: '蛊师', check: '巫蛊', desc: '蛊师的攻击方式，一般为咒术或蛊虫，需进行巫蛊判定。' },
+    '吊魂': { grade: '自定义', cost: '按设定', time: '即时', limit: '吊魂师', desc: '对魂魄受损之人的治疗，使用时需对象无意识或同意，否则需POW对抗。' },
+    '勾魂': { grade: '自定义', cost: '按设定', time: '即时', limit: '活无常', desc: '攻击、拘束魂魄的法术统称，对无肉体鬼魂/鬼修更致命。' },
+    '杏林': { grade: '自定义', cost: '按设定', time: '即时/短时/长时', limit: '医修', desc: '治愈性法术的基本统称，形式因人而异。' },
     '傀儡法术': { grade: '自定义', cost: '按设定', time: '即时', limit: '偃师', check: '灵力控制', desc: '对傀儡下令的法术，困难程度可能需要灵力控制检定。' },
-    '附灵':     { grade: '自定义', cost: '按设定', time: '即时/短时/长时', limit: '丹青师', desc: '让灵气短暂聚集到指定物体上，使其生出灵性。' },
-    '兵戈':     { grade: '自定义', cost: '按设定', time: '即时', limit: '兵修', desc: '最简单的利用灵气施展招式，有专门名称和招式特性。' },
-    '五音':     { grade: '自定义', cost: '按设定', time: '短时', limit: '乐师', desc: '宫商角徵羽，乐师附有灵气的弹奏，可攻击/治疗/幻术。' },
-    '铸器':     { grade: '自定义', cost: '按设定', time: '被动/即时', limit: '铸器师', desc: '不进行技能检定了解器物特征，或以天地为炉对敌方展开多段攻击(rnd3)。' },
-    '画符':     { grade: '自定义', cost: '按设定', time: '被动', limit: '符师', desc: '创造符、利用符的能力。只有符师能设计符篆。' },
-    '画阵':     { grade: '自定义', cost: '按设定', time: '被动', limit: '阵师', desc: '与画符规则一致。阵不需注入灵气启动，自动运行。' },
-    '兽心通':   { grade: '自定义', cost: '按设定', time: '被动', limit: '御兽师', desc: '与灵兽建立联系，可不使用传音技能听懂灵兽意思。' },
-    '蜃梦':     { grade: '自定义', cost: '按设定', time: '短时/长时', limit: '蜃师', desc: '制造幻觉或干扰梦境，了无痕迹难以察觉。' },
-    '诱导':     { grade: '自定义', cost: '按设定', time: '被动', limit: '仙商', desc: '较高口才或吸引力，让他人产生好感。' },
-    '草木通':   { grade: '自定义', cost: '按设定', time: '被动', limit: '灵植师', desc: '与植物构建对话方式，读懂植物情绪变化或大致意思。' },
-    '食鲜':     { grade: '自定义', cost: '按设定', time: '被动', limit: '灵厨', desc: '保存/搭配食材的独特路数，可利用其他五行灵气（不含变异灵气）。' },
-    '天问':     { grade: '自定义', cost: '自定义', time: '自定义', limit: '游方道人', desc: '因得道在特定方面有超乎常人的敏锐性（由PL自定义）。' },
-    '暖香':     { grade: '自定义', cost: '按设定', time: '短时/长时', limit: '合欢道人', desc: '引动修仙者欲火，搭配房中术可让人枯死在温柔乡中。' },
-    '邪祟':     { grade: '自定义', cost: '按设定', time: '即时/短时/长时', limit: '毒修', desc: '提炼负面灵气作为防身武器，包括致命毒物、恶灵怨念等。' },
-    '心火':     { grade: '自定义', cost: '按设定', time: '即时/短时/长时', limit: '血修', desc: '影响他人血气运动，产生愤怒焦躁等负面情绪，甚至诱导心魔。' },
-    '摄魂':     { grade: '自定义', cost: '按设定', time: '短时/长时', limit: '摄魂鬼', desc: '摧毁魂魄，不可逆转，需与对象进行POW检定。' },
-    '告死':     { grade: '自定义', cost: '按设定', time: '被动', limit: '告死人', desc: '因他人死亡而亢奋，开杀戒后陷入陶醉状态，带来属性强化。' }
+    '附灵': { grade: '自定义', cost: '按设定', time: '即时/短时/长时', limit: '丹青师', desc: '让灵气短暂聚集到指定物体上，使其生出灵性。' },
+    '兵戈': { grade: '自定义', cost: '按设定', time: '即时', limit: '兵修', desc: '最简单的利用灵气施展招式，有专门名称和招式特性。' },
+    '五音': { grade: '自定义', cost: '按设定', time: '短时', limit: '乐师', desc: '宫商角徵羽，乐师附有灵气的弹奏，可攻击/治疗/幻术。' },
+    '铸器': { grade: '自定义', cost: '按设定', time: '被动/即时', limit: '铸器师', desc: '不进行技能检定了解器物特征，或以天地为炉对敌方展开多段攻击(rnd3)。' },
+    '画符': { grade: '自定义', cost: '按设定', time: '被动', limit: '符师', desc: '创造符、利用符的能力。只有符师能设计符篆。' },
+    '画阵': { grade: '自定义', cost: '按设定', time: '被动', limit: '阵师', desc: '与画符规则一致。阵不需注入灵气启动，自动运行。' },
+    '兽心通': { grade: '自定义', cost: '按设定', time: '被动', limit: '御兽师', desc: '与灵兽建立联系，可不使用传音技能听懂灵兽意思。' },
+    '蜃梦': { grade: '自定义', cost: '按设定', time: '短时/长时', limit: '蜃师', desc: '制造幻觉或干扰梦境，了无痕迹难以察觉。' },
+    '诱导': { grade: '自定义', cost: '按设定', time: '被动', limit: '仙商', desc: '较高口才或吸引力，让他人产生好感。' },
+    '草木通': { grade: '自定义', cost: '按设定', time: '被动', limit: '灵植师', desc: '与植物构建对话方式，读懂植物情绪变化或大致意思。' },
+    '食鲜': { grade: '自定义', cost: '按设定', time: '被动', limit: '灵厨', desc: '保存/搭配食材的独特路数，可利用其他五行灵气（不含变异灵气）。' },
+    '天问': { grade: '自定义', cost: '自定义', time: '自定义', limit: '游方道人', desc: '因得道在特定方面有超乎常人的敏锐性（由PL自定义）。' },
+    '暖香': { grade: '自定义', cost: '按设定', time: '短时/长时', limit: '合欢道人', desc: '引动修仙者欲火，搭配房中术可让人枯死在温柔乡中。' },
+    '邪祟': { grade: '自定义', cost: '按设定', time: '即时/短时/长时', limit: '毒修', desc: '提炼负面灵气作为防身武器，包括致命毒物、恶灵怨念等。' },
+    '心火': { grade: '自定义', cost: '按设定', time: '即时/短时/长时', limit: '血修', desc: '影响他人血气运动，产生愤怒焦躁等负面情绪，甚至诱导心魔。' },
+    '摄魂': { grade: '自定义', cost: '按设定', time: '短时/长时', limit: '摄魂鬼', desc: '摧毁魂魄，不可逆转，需与对象进行POW检定。' },
+    '告死': { grade: '自定义', cost: '按设定', time: '被动', limit: '告死人', desc: '因他人死亡而亢奋，开杀戒后陷入陶醉状态，带来属性强化。' }
   };
 
   var TRAITS_PERSONAL = [
@@ -320,11 +320,11 @@ if (!seal.ext.find('cyws')) {
       if (mode && mode.indexOf('$t') < 0 && mode.trim() !== '') {
         return mode.trim() === 'cyws';
       }
-    } catch(e) {}
+    } catch (e) { }
     try {
       var r = seal.vars.strGet(ctx, '$t游戏模式');
       if (r[1]) return r[0] === 'cyws';
-    } catch(e) {}
+    } catch (e) { }
     return false;
   }
 
@@ -398,7 +398,7 @@ if (!seal.ext.find('cyws')) {
   // 存储辅助
   function storageGetJSON(key, fallback) {
     try { return JSON.parse(ext.storageGet(key) || 'null') || fallback; }
-    catch(e) { return fallback; }
+    catch (e) { return fallback; }
   }
   function storageSetJSON(key, val) {
     ext.storageSet(key, JSON.stringify(val));
@@ -440,7 +440,7 @@ if (!seal.ext.find('cyws')) {
   // NPC属性解析：支持 力量50、DB=+1D4、HP10/10 三种格式
   function parseNpcStats(text) {
     var stats = {};
-    var tokens = text.split(/\s+/).filter(function(t) { return t.length > 0; });
+    var tokens = text.split(/\s+/).filter(function (t) { return t.length > 0; });
     for (var i = 0; i < tokens.length; i++) {
       var t = tokens[i];
       var eqIdx = t.indexOf('=');
@@ -504,8 +504,8 @@ if (!seal.ext.find('cyws')) {
   // 衍生属性计算
   function calcDB(str, siz) {
     var sum = Number(str) + Number(siz);
-    if (sum <= 60)  return '-1D6';
-    if (sum <= 80)  return '-1D4';
+    if (sum <= 60) return '-1D6';
+    if (sum <= 80) return '-1D4';
     if (sum <= 120) return '0';
     if (sum <= 160) return '+1D4';
     if (sum <= 200) return '+1D6';
@@ -530,7 +530,7 @@ if (!seal.ext.find('cyws')) {
     var siz = getInt(ctx, '体型', 0);
     var dex = getInt(ctx, '敏捷', 0);
     var pow = getInt(ctx, '意志', 0);
-    var qi  = getInt(ctx, '灵气', 0);
+    var qi = getInt(ctx, '灵气', 0);
     var ahp = getInt(ctx, 'AHP', 0);
     var race = getStr(ctx, '种族', '人族');
     var realm = getStr(ctx, '境界', '炼气');
@@ -566,7 +566,7 @@ if (!seal.ext.find('cyws')) {
   function judgeSuccess(rollVal, skillValue) {
     skillValue = Number(skillValue);
     rollVal = Number(rollVal);
-    if (rollVal === 1)   return { level: '大成功', canGrow: true };
+    if (rollVal === 1) return { level: '大成功', canGrow: true };
     if (rollVal === 100) return { level: '大失败', canGrow: false };
     if (skillValue > 0 && rollVal <= Math.floor(skillValue / 5)) return { level: '特殊成功', canGrow: true };
     if (skillValue > 0 && rollVal <= Math.floor(skillValue / 2)) return { level: '困难成功', canGrow: false };
@@ -637,7 +637,7 @@ if (!seal.ext.find('cyws')) {
           candidates.push({ prefix: aliases2[ai2], canonical: canonical2 });
         }
       }
-      candidates.sort(function(a, b) { return b.prefix.length - a.prefix.length; });
+      candidates.sort(function (a, b) { return b.prefix.length - a.prefix.length; });
 
       for (var ci = 0; ci < candidates.length; ci++) {
         var cand = candidates[ci];
@@ -672,15 +672,15 @@ if (!seal.ext.find('cyws')) {
   // 输入解析 v3
   function parseStInput(text) {
     var result = { attrs: {}, increments: {}, spiritRoot: null, race: null, realm: null, profession: null, weapon: null, unrecognized: [] };
-    var tokens = text.split(/\s+/).filter(function(t) { return t.length > 0; });
+    var tokens = text.split(/\s+/).filter(function (t) { return t.length > 0; });
     if (tokens.length === 0) return result;
 
-    var spiritRoots = new Set(['金','木','水','火','土','音','花','幻','电','幽冥','血','毒','气']);
-    var races = new Set(['人族','鲛人','羽民','半妖','鬼魂','鬼修','妖','怪','灵']);
-    var realms = new Set(['炼气','筑基','金丹','元婴','化神','大乘']);
+    var spiritRoots = new Set(['金', '木', '水', '火', '土', '音', '花', '幻', '电', '幽冥', '血', '毒', '气']);
+    var races = new Set(['人族', '鲛人', '羽民', '半妖', '鬼魂', '鬼修', '妖', '怪', '灵']);
+    var realms = new Set(['炼气', '筑基', '金丹', '元婴', '化神', '大乘']);
 
     var defaultsKeys = Object.keys(template.defaults || {});
-    defaultsKeys.sort(function(a, b) { return b.length - a.length; });
+    defaultsKeys.sort(function (a, b) { return b.length - a.length; });
 
     var aliasEntries = [];
     for (var canonical in template.alias) {
@@ -690,7 +690,7 @@ if (!seal.ext.find('cyws')) {
         aliasEntries.push({ alias: aliases[i], canonical: canonical });
       }
     }
-    aliasEntries.sort(function(a, b) { return b.alias.length - a.alias.length; });
+    aliasEntries.sort(function (a, b) { return b.alias.length - a.alias.length; });
 
     var idx = 0;
     while (idx < tokens.length) {
@@ -705,15 +705,15 @@ if (!seal.ext.find('cyws')) {
 
       // 武器空格格式
       if (token === '武器' && idx + 2 < tokens.length) {
-        result.weapon = { name: tokens[idx+1], formula: tokens[idx+2] };
+        result.weapon = { name: tokens[idx + 1], formula: tokens[idx + 2] };
         idx += 3; continue;
       }
 
       // 元数据精确匹配
       if (spiritRoots.has(token)) { result.spiritRoot = token; idx++; continue; }
-      if (races.has(token))       { result.race = token; idx++; continue; }
-      if (realms.has(token))      { result.realm = token; idx++; continue; }
-      if (PROFESSIONS[token])     { result.profession = token; idx++; continue; }
+      if (races.has(token)) { result.race = token; idx++; continue; }
+      if (realms.has(token)) { result.realm = token; idx++; continue; }
+      if (PROFESSIONS[token]) { result.profession = token; idx++; continue; }
 
       // defaults键匹配（按长度降序，优先匹配长名如"自定义1"）
       var matched = false;
@@ -788,7 +788,7 @@ if (!seal.ext.find('cyws')) {
 
       // 空格分离 name value 格式（支持 name +value 增量）
       if (defaultsKeys.indexOf(token) >= 0 && idx + 1 < tokens.length) {
-        var nextRaw = tokens[idx+1];
+        var nextRaw = tokens[idx + 1];
         var nextIsInc = nextRaw.startsWith('+');
         var nextVal = parseInt(nextIsInc ? nextRaw.substring(1) : nextRaw, 10);
         if (!isNaN(nextVal) && !spiritRoots.has(nextRaw) && !races.has(nextRaw) && !realms.has(nextRaw)) {
@@ -801,7 +801,7 @@ if (!seal.ext.find('cyws')) {
       // alias空格格式（支持 +value 增量）
       var aliasLookup = ALIAS_TO_CANONICAL[token.toLowerCase()] || ALIAS_TO_CANONICAL[token];
       if (aliasLookup && idx + 1 < tokens.length) {
-        var anextRaw = tokens[idx+1];
+        var anextRaw = tokens[idx + 1];
         var anextIsInc = anextRaw.startsWith('+');
         var anextVal = parseInt(anextIsInc ? anextRaw.substring(1) : anextRaw, 10);
         if (!isNaN(anextVal)) {
@@ -855,7 +855,7 @@ if (!seal.ext.find('cyws')) {
     + '📖 输入 .餐云 help <分类> 查看详细帮助\n'
     + '· 录卡 — 制卡/录入/属性\n'
     + '· 检定 — 技能/属性/功法检定\n'
-    + '· 战斗 — 攻击/受伤/武器\n'
+    + '· 战斗 — 攻击/受伤/妖丹/武器\n'
     + '· 法术 — 施法/学习/删除\n'
     + '· 成长 — 成长检定/标记/跑团联动\n'
     + '· 管理 — NPC/状态/灵气/HP';
@@ -902,6 +902,12 @@ if (!seal.ext.find('cyws')) {
     + '.武器删除 <武器名>     删除角色武器（别名：.武器移除）\n'
     + '.受伤 <数值>           扣减HP\n'
     + '  → 自动减护甲，鬼修扣灵气，HP≤0昏迷\n'
+    + '.妖丹 出/受伤/回/状态  妖丹管理（妖族专用）\n'
+    + '  → 出：妖丹离体，检定自动+5属性/+10%技能\n'
+    + '  → 受伤：扣减妖丹HP，破碎则HP上限减半\n'
+    + '  → 回：战斗结束归体\n'
+    + '  → 状态：查看妖丹HP和当前状态\n'
+    + '  → 攻击妖丹：由GM判定，攻击者用.ra困难检定即可\n'
     + '.施法 <法术名> [pp/灵]  施放法术';
 
   var HELP_SPELL = ''
@@ -955,7 +961,7 @@ if (!seal.ext.find('cyws')) {
   var cmdSt = seal.ext.newCmdItemInfo();
   cmdSt.name = 'st';
   cmdSt.help = '📋 .st <属性值...> — 录入角色卡\n\n自动识别灵根/种族/境界/职业，并计算HP/PP/DB/ADB等衍生值。\n\n格式：属性名+数值 紧凑排列，元数据关键词自动识别\n例：.st 力量60体质55体型65智力70意志60敏捷75外貌45 灵气70 金 人族 炼气 兵修 战斗:器60\n\n支持的格式：\n· 紧凑：力量60体质55\n· 空格：力量 60 体质 55\n· 英文别名：STR60 DEX75\n· 冒号属性：战斗:器60 知识:草药学5\n· 增量修改：灵气+30（在当前值基础上加30）\n· 武器录入：武器:本命剑:1d8+1d4\n· 元数据关键词：金/木/水/火/土 等13种灵根、人族等9种种族、炼气等6种境界、22种职业\n\n子命令穿透：.st show / .st clear / .st del 等交给核心处理';
-  cmdSt.solve = function(ctx, msg, cmdArgs) {
+  cmdSt.solve = function (ctx, msg, cmdArgs) {
     if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var text = cmdArgs.getRestArgsFrom(1);
     if (!text || text.trim() === '') {
@@ -970,6 +976,85 @@ if (!seal.ext.find('cyws')) {
     if (Object.keys(parsed.attrs).length === 0 && Object.keys(parsed.increments).length === 0 && !parsed.spiritRoot && !parsed.race && !parsed.realm && !parsed.profession && !parsed.weapon) {
       return seal.ext.newCmdExecuteResult(false);
     }
+
+    // 判断是否为增量修改简洁模式：属性项≤2 且无元数据/武器变更
+    var attrCount = Object.keys(parsed.attrs).length + Object.keys(parsed.increments).length;
+    var hasMetaChange = parsed.spiritRoot || parsed.race || parsed.realm || parsed.profession || parsed.weapon;
+    var isSimpleMode = attrCount <= 2 && !hasMetaChange;
+
+    if (isSimpleMode) {
+      // 简洁模式：仅显示变化的属性和受影响的衍生值
+
+      // 快照衍生值（修改前）
+      var snapHP = getInt(ctx, 'HP', 0);
+      var snapMaxHP = getInt(ctx, '最大HP', 0);
+      var snapPP = getInt(ctx, 'PP', 0);
+      var snapMaxPP = getInt(ctx, '最大PP', 0);
+      var snapDB = getStr(ctx, 'DB', '0');
+      var snapADB = getStr(ctx, 'ADB', '0');
+
+      // 写入绝对值
+      for (var skey in parsed.attrs) {
+        if (!parsed.attrs.hasOwnProperty(skey)) continue;
+        setInt(ctx, skey, parsed.attrs[skey]);
+      }
+
+      // 写入增量
+      var changes = [];
+      for (var sikey in parsed.increments) {
+        if (!parsed.increments.hasOwnProperty(sikey)) continue;
+        var sOldVal = getInt(ctx, sikey, 0);
+        var sDelta = parsed.increments[sikey];
+        setInt(ctx, sikey, sOldVal + sDelta);
+        changes.push(sikey + ': ' + sOldVal + ' ➯ ' + (sOldVal + sDelta) + ' (' + (sDelta > 0 ? '+' : '') + sDelta + ')');
+      }
+      for (var sakey in parsed.attrs) {
+        if (!parsed.attrs.hasOwnProperty(sakey)) continue;
+        changes.push(sakey + ' = ' + parsed.attrs[sakey]);
+      }
+
+      // 重算衍生值
+      calcDerivedFromCard(ctx);
+      writeDerived(ctx, calcDerivedFromCard(ctx));
+      // defaultsComputed
+      var sr1 = seal.vars.intGet(ctx, '闪避');
+      if (!sr1[1]) setInt(ctx, '闪避', Math.floor(getInt(ctx, '敏捷', 0) / 5));
+      var sr2 = seal.vars.intGet(ctx, '灵力控制');
+      if (!sr2[1]) setInt(ctx, '灵力控制', Math.floor(getInt(ctx, '意志', 0) / 2));
+      var sr3 = seal.vars.intGet(ctx, '语言');
+      if (!sr3[1]) setInt(ctx, '语言', getInt(ctx, '智力', 0));
+
+      // 对比衍生值变化
+      var derivedChanges = [];
+      var newHP = getInt(ctx, 'HP', 0);
+      var newMaxHP = getInt(ctx, '最大HP', 0);
+      var newPP = getInt(ctx, 'PP', 0);
+      var newMaxPP = getInt(ctx, '最大PP', 0);
+      var newDB = getStr(ctx, 'DB', '0');
+      var newADB = getStr(ctx, 'ADB', '0');
+
+      if (newHP !== snapHP) derivedChanges.push('HP: ' + snapHP + ' ➯ ' + newHP);
+      if (newMaxHP !== snapMaxHP) derivedChanges.push('最大HP: ' + snapMaxHP + ' ➯ ' + newMaxHP);
+      if (newPP !== snapPP) derivedChanges.push('PP: ' + snapPP + ' ➯ ' + newPP);
+      if (newMaxPP !== snapMaxPP) derivedChanges.push('最大PP: ' + snapMaxPP + ' ➯ ' + newMaxPP);
+      if (newDB !== snapDB) derivedChanges.push('DB: ' + snapDB + ' ➯ ' + newDB);
+      if (newADB !== snapADB) derivedChanges.push('ADB: ' + snapADB + ' ➯ ' + newADB);
+
+      var sOutput = ctx.player.name + ' 的属性变化:\n';
+      sOutput += changes.join('\n');
+      if (derivedChanges.length > 0) {
+        sOutput += '\n━━━━━━━━━━━━━━━\n衍生值重算:\n' + derivedChanges.join('\n');
+      }
+
+      if (parsed.unrecognized.length > 0) {
+        sOutput += '\n⚠️ 未识别内容：' + parsed.unrecognized.join('、');
+      }
+
+      seal.replyToSender(ctx, msg, sOutput);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    // 全量录入模式：保持原有完整输出
 
     // 绝对值写入
     for (var key in parsed.attrs) {
@@ -988,14 +1073,14 @@ if (!seal.ext.find('cyws')) {
     }
 
     if (parsed.spiritRoot) setStr(ctx, '灵根', parsed.spiritRoot);
-    if (parsed.race)       setStr(ctx, '种族', parsed.race);
-    if (parsed.realm)      setStr(ctx, '境界', parsed.realm);
+    if (parsed.race) setStr(ctx, '种族', parsed.race);
+    if (parsed.realm) setStr(ctx, '境界', parsed.realm);
     if (parsed.profession) setStr(ctx, '职业', parsed.profession);
 
     var meta = getMeta(ctx);
     if (parsed.spiritRoot) meta.lastSpiritRoot = parsed.spiritRoot;
-    if (parsed.race)       meta.lastRace = parsed.race;
-    if (parsed.realm)      meta.lastRealm = parsed.realm;
+    if (parsed.race) meta.lastRace = parsed.race;
+    if (parsed.realm) meta.lastRealm = parsed.realm;
     if (parsed.profession) meta.lastProfession = parsed.profession;
     if (parsed.weapon) {
       meta.weapons = meta.weapons || {};
@@ -1054,7 +1139,7 @@ if (!seal.ext.find('cyws')) {
     var raceInfo = RACES[getStr(ctx, '种族', '')];
     if (raceInfo && raceInfo.bonuses) {
       var bonusList = [];
-      for (var bk in raceInfo.bonuses) { if (raceInfo.bonuses.hasOwnProperty(bk)) bonusList.push(bk + '+' + raceInfo.bonuses[bk]); }
+      for (var bk in raceInfo.bonuses) { if (raceInfo.bonuses.hasOwnProperty(bk)) bonusList.push(bk + '+' + raceInfo.bonuses[bk] + '%'); }
       output += '\n⚠️ ' + getStr(ctx, '种族', '') + '种族加成：' + bonusList.join('、') + '，请确认是否已计入';
     }
 
@@ -1100,9 +1185,12 @@ if (!seal.ext.find('cyws')) {
   // 5.2 .ra 命令
   var cmdRa = seal.ext.newCmdItemInfo();
   cmdRa.name = 'ra';
-  cmdRa.help = '🎲 .ra <技能名> — 技能检定\n\n掷1D100，与技能值比较判定成功等级：\n· 大成功=1 / 特殊成功≤技能/5 / 困难成功≤技能/2\n· 成功≤技能 / 失败>技能 / 大失败=100\n\n跑团中(.log on)特殊成功/大成功自动标记成长。\n支持格式：\n· .ra 闪避       从卡片读取技能值\n· .ra 闪避 50    手动指定技能值\n· .ra 50 闪避    数值在前\n· .ra侦查40      无空格紧凑格式\n· .ra 侦查+10    临时加值检定\n· .ra 侦查-5     临时减值检定\n· .ra100         纯数值检定';
-  cmdRa.solve = function(ctx, msg, cmdArgs) {
+  cmdRa.help = '🎲 .ra <技能名> — 技能检定\n\n掷1D100，与技能值比较判定成功等级：\n· 大成功=1 / 特殊成功≤技能/5 / 困难成功≤技能/2\n· 成功≤技能 / 失败>技能 / 大失败=100\n\n跑团中(.log on)特殊成功/大成功自动标记成长。\n支持代骰：.ra 闪避 @A玩家\n支持格式：\n· .ra 闪避       从卡片读取技能值\n· .ra 闪避 50    手动指定技能值\n· .ra 50 闪避    数值在前\n· .ra侦查40      无空格紧凑格式\n· .ra 侦查+10    临时加值检定\n· .ra 侦查-5     临时减值检定\n· .ra100         纯数值检定';
+  cmdRa.allowDelegate = true;
+  cmdRa.solve = function (ctx, msg, cmdArgs) {
     if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
+    var mctx = seal.getCtxProxyFirst(ctx, cmdArgs);
+    mctx.delegateText = ctx.delegateText || '';
     var arg1 = cmdArgs.getArgN(1);
     if (!arg1) {
       seal.replyToSender(ctx, msg, '用法: .ra <技能名> [数值/+加值/-减值]\n例：.ra 闪避  .ra侦查40  .ra 闪避+10');
@@ -1115,12 +1203,15 @@ if (!seal.ext.find('cyws')) {
     var bonus = parsed.bonus;
     var isManual = parsed.isManual;
 
-    // 计算有效检定值
+    // 计算有效检定值（使用 mctx 读取被代骰者的角色卡）
     var skillValue;
+    var yaoDanBonus = 0;
+    var mctxMarkers = getMarkers(mctx);
+    var hasYaoDan = mctxMarkers.indexOf('妖丹') >= 0 && mctxMarkers.indexOf('妖丹碎') < 0;
     if (baseValue !== null) {
       skillValue = baseValue + bonus;
     } else if (skillName) {
-      var cardVal = getInt(ctx, skillName, -1);
+      var cardVal = getInt(mctx, skillName, -1);
       if (cardVal < 0 && SKILL_DEFAULTS.hasOwnProperty(skillName)) {
         cardVal = SKILL_DEFAULTS[skillName];
       }
@@ -1128,26 +1219,29 @@ if (!seal.ext.find('cyws')) {
         seal.replyToSender(ctx, msg, '⚠️ 未找到技能: ' + skillName + '\n可手动指定数值: .ra ' + skillName + ' <数值>');
         return seal.ext.newCmdExecuteResult(true);
       }
-      skillValue = cardVal + bonus;
+      if (hasYaoDan) {
+        yaoDanBonus = Math.floor(cardVal * 0.1);
+      }
+      skillValue = cardVal + bonus + yaoDanBonus;
     } else {
       // 纯数值检定（无技能名）
       skillValue = baseValue;
     }
 
-    var rollResult = roll(ctx, '1d100');
+    var rollResult = roll(mctx, '1d100');
     var judge = judgeSuccess(rollResult, skillValue);
     var hardVal = Math.floor(skillValue / 2);
     var specialVal = Math.floor(skillValue / 5);
     var levelEmoji = { '大成功': '✨', '特殊成功': '✨', '困难成功': '✅', '成功': '✅', '失败': '❌', '大失败': '💀' };
 
     var output = '🎲 餐云卧石技能检定\n━━━━━━━━━━━━━━━\n';
-    output += '角色：' + ctx.player.name + '\n';
+    output += '角色：' + mctx.player.name + '\n';
     if (skillName) {
       var valStr = '';
       if (isManual) {
         valStr = baseValue + '%' + (bonus !== 0 ? (bonus > 0 ? '+' + bonus : '' + bonus) : '') + ' [手动]';
       } else {
-        valStr = getInt(ctx, skillName, 0) + '%' + (bonus !== 0 ? (bonus > 0 ? '+' + bonus : '' + bonus) + ' [临时' + (bonus > 0 ? '加值' : '减值') + ']' : '');
+        valStr = getInt(mctx, skillName, 0) + '%' + (bonus !== 0 ? (bonus > 0 ? '+' + bonus : '' + bonus) + ' [临时' + (bonus > 0 ? '加值' : '减值') + ']' : '') + (yaoDanBonus > 0 ? '+' + yaoDanBonus + ' [妖丹]' : '');
       }
       output += '技能：' + skillName + ' (' + valStr + ')\n';
     } else {
@@ -1158,18 +1252,18 @@ if (!seal.ext.find('cyws')) {
     output += '🎲 1D100 = ' + rollResult + '\n';
     output += (levelEmoji[judge.level] || '') + ' ' + judge.level;
 
-    // 成长标记：log on 且非手动指定值
-    var isLogOn = ctx.group && ctx.group.logOn;
+    // 成长标记：log on 且非手动指定值（写入被代骰者的 mctx）
+    var isLogOn = mctx.group && mctx.group.logOn;
     if (judge.canGrow && !isManual && skillName && isLogOn) {
       output += '\n[成长标记 ✓]';
-      var meta = getMeta(ctx);
+      var meta = getMeta(mctx);
       if (!meta.growthMarks) meta.growthMarks = {};
       meta.growthMarks[skillName] = judge.level;
-      setMeta(ctx, meta);
+      setMeta(mctx, meta);
     }
 
     // 幻灵根猜测检查
-    var guessKey = charKey(ctx, 'pending_guess');
+    var guessKey = charKey(mctx, 'pending_guess');
     var pendingGuess = storageGetJSON(guessKey, null);
     if (pendingGuess) {
       ext.storageSet(guessKey, '');
@@ -1180,7 +1274,7 @@ if (!seal.ext.find('cyws')) {
       }
     }
 
-    seal.replyToSender(ctx, msg, output);
+    seal.replyToSender(ctx, msg, mctx.delegateText + output);
     return seal.ext.newCmdExecuteResult(true);
   };
   ext.cmdMap['ra'] = cmdRa;
@@ -1188,9 +1282,12 @@ if (!seal.ext.find('cyws')) {
   // 5.3 .rc 命令
   var cmdRc = seal.ext.newCmdItemInfo();
   cmdRc.name = 'rc';
-  cmdRc.help = '🎲 .rc <属性名> — 属性检定\n\n用属性值作为成功率进行D100检定（力量80即80%成功率）。\n成功等级与.ra相同。\n支持格式：\n· .rc 力量       从卡片读取\n· .rc 力量 80    手动指定\n· .rc力量80      无空格紧凑格式\n· .rc 力量+10    临时加值\n\n例：.rc 力量  .rc 意志  .rc 力量 80';
-  cmdRc.solve = function(ctx, msg, cmdArgs) {
+  cmdRc.help = '🎲 .rc <属性名> — 属性检定\n\n用属性值作为成功率进行D100检定（力量80即80%成功率）。\n成功等级与.ra相同。\n支持代骰：.rc 力量 @A玩家\n支持格式：\n· .rc 力量       从卡片读取\n· .rc 力量 80    手动指定\n· .rc力量80      无空格紧凑格式\n· .rc 力量+10    临时加值\n\n例：.rc 力量  .rc 意志  .rc 力量 80';
+  cmdRc.allowDelegate = true;
+  cmdRc.solve = function (ctx, msg, cmdArgs) {
     if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
+    var mctx = seal.getCtxProxyFirst(ctx, cmdArgs);
+    mctx.delegateText = ctx.delegateText || '';
     var arg1 = cmdArgs.getArgN(1);
     if (!arg1) {
       seal.replyToSender(ctx, msg, '用法: .rc <属性名> [数值/+加值/-减值]\n例：.rc 力量  .rc力量80  .rc 力量+10');
@@ -1203,28 +1300,35 @@ if (!seal.ext.find('cyws')) {
     var bonus = parsed.bonus;
     var isManual = parsed.isManual;
 
+    // 妖丹加成：属性+5
+    var mctxMarkersRc = getMarkers(mctx);
+    var hasYaoDanRc = mctxMarkersRc.indexOf('妖丹') >= 0 && mctxMarkersRc.indexOf('妖丹碎') < 0;
+    var yaoDanAttrBonus = (hasYaoDanRc && !isManual && attrName) ? 5 : 0;
+
     var attrValue;
     if (baseValue !== null) {
       attrValue = baseValue + bonus;
     } else if (attrName) {
-      attrValue = getInt(ctx, attrName, 0) + bonus;
+      attrValue = getInt(mctx, attrName, 0) + bonus + yaoDanAttrBonus;
     } else {
       attrValue = baseValue;
     }
 
-    var rollResult = roll(ctx, '1d100');
+    var rollResult = roll(mctx, '1d100');
     var judge = judgeSuccess(rollResult, attrValue);
     var levelEmoji = { '大成功': '✨', '特殊成功': '✨', '困难成功': '✅', '成功': '✅', '失败': '❌', '大失败': '💀' };
 
     var valStr = attrValue + '%';
     if (isManual) {
       valStr = baseValue + '%' + (bonus !== 0 ? (bonus > 0 ? '+' + bonus : '' + bonus) : '') + ' [手动]';
-    } else if (bonus !== 0) {
-      valStr = getInt(ctx, attrName, 0) + '%' + (bonus > 0 ? '+' + bonus : '' + bonus) + ' [临时' + (bonus > 0 ? '加值' : '减值') + ']';
+    } else if (bonus !== 0 || yaoDanAttrBonus > 0) {
+      valStr = getInt(mctx, attrName, 0) + '%'
+        + (bonus !== 0 ? (bonus > 0 ? '+' + bonus : '' + bonus) + ' [临时' + (bonus > 0 ? '加值' : '减值') + ']' : '')
+        + (yaoDanAttrBonus > 0 ? '+' + yaoDanAttrBonus + ' [妖丹]' : '');
     }
     var output = '🎲 属性检定：' + (attrName || '纯数值') + ' (' + valStr + ')\n';
     output += '🎲 1D100 = ' + rollResult + ' → ' + (levelEmoji[judge.level] || '') + ' ' + judge.level;
-    seal.replyToSender(ctx, msg, output);
+    seal.replyToSender(ctx, msg, mctx.delegateText + output);
     return seal.ext.newCmdExecuteResult(true);
   };
   ext.cmdMap['rc'] = cmdRc;
@@ -1233,7 +1337,7 @@ if (!seal.ext.find('cyws')) {
   var cmdCyws = seal.ext.newCmdItemInfo();
   cmdCyws.name = '餐云';
   cmdCyws.help = '🏔️ .餐云 [数量] — 批量投掷属性\n\n投掷7项基础属性(3d6×5)+气运(3d6×5)+灵气(2d6×5+30)。\n可选参数：数量(1-10)，默认1组。\n\n.餐云 help [分类] — 查看帮助（录卡/检定/战斗/法术/成长/管理）\n.cyws — .餐云的别名';
-  cmdCyws.solve = function(ctx, msg, cmdArgs) {
+  cmdCyws.solve = function (ctx, msg, cmdArgs) {
     var subCmd = cmdArgs.getArgN(1);
     // help 不受房规守卫限制——用户需要先看到帮助才知道怎么 .set cyws
     if (subCmd === 'help' || subCmd === '帮助') {
@@ -1263,7 +1367,7 @@ if (!seal.ext.find('cyws')) {
       var luck = roll(ctx, '3d6*5');
       var qi = roll(ctx, '2d6*5+30');
       var total = str + con + siz + int_ + pow + dex + app;
-      output += '[' + (i+1) + '] STR:' + str + ' CON:' + con + ' SIZ:' + siz + ' INT:' + int_ + ' POW:' + pow + ' DEX:' + dex + ' APP:' + app + '\n';
+      output += '[' + (i + 1) + '] STR:' + str + ' CON:' + con + ' SIZ:' + siz + ' INT:' + int_ + ' POW:' + pow + ' DEX:' + dex + ' APP:' + app + '\n';
       output += '    气运:' + luck + ' 灵气:' + qi + ' 总值:' + total + '\n';
       output += '📋 .st 力量' + str + '体质' + con + '体型' + siz + '智力' + int_ + '意志' + pow + '敏捷' + dex + '外貌' + app + ' 气运' + luck + '灵气' + qi + '\n\n';
     }
@@ -1283,16 +1387,16 @@ if (!seal.ext.find('cyws')) {
   var cmdInput = seal.ext.newCmdItemInfo();
   cmdInput.name = '录入';
   cmdInput.help = '📝 .录入 <灵根> <种族> <境界> <职业> — 元数据录入\n\n单独修改灵根/种族/境界/职业，不需重新录入全部属性。\n修改后自动重算衍生值。\n\n例：.录入 金 人族 筑基 兵修\n例：.录入 筑基（只改境界）';
-  cmdInput.solve = function(ctx, msg, cmdArgs) {
+  cmdInput.solve = function (ctx, msg, cmdArgs) {
     var text = cmdArgs.getRestArgsFrom(1);
     if (!text) {
       seal.replyToSender(ctx, msg, '用法: .录入 <灵根> <种族> <境界> <职业>\n示例: .录入 金 人族 炼气 蛊师');
       return seal.ext.newCmdExecuteResult(true);
     }
     var tokens = text.split(/\s+/);
-    var spiritRoots = new Set(['金','木','水','火','土','音','花','幻','电','幽冥','血','毒','气']);
-    var races = new Set(['人族','鲛人','羽民','半妖','鬼魂','鬼修','妖','怪','灵']);
-    var realms = new Set(['炼气','筑基','金丹','元婴','化神','大乘']);
+    var spiritRoots = new Set(['金', '木', '水', '火', '土', '音', '花', '幻', '电', '幽冥', '血', '毒', '气']);
+    var races = new Set(['人族', '鲛人', '羽民', '半妖', '鬼魂', '鬼修', '妖', '怪', '灵']);
+    var realms = new Set(['炼气', '筑基', '金丹', '元婴', '化神', '大乘']);
     var metaChanged = false;
     for (var i = 0; i < tokens.length; i++) {
       if (spiritRoots.has(tokens[i])) { setStr(ctx, '灵根', tokens[i]); metaChanged = true; }
@@ -1320,7 +1424,7 @@ if (!seal.ext.find('cyws')) {
   var cmdRecalc = seal.ext.newCmdItemInfo();
   cmdRecalc.name = '重算';
   cmdRecalc.help = '🔄 .重算 — 重新计算所有衍生属性\n\n根据当前力量/体质/体型/敏捷/意志/灵气/种族/境界，重算HP/PP/DB/ADB/职业点/兴趣点/法术点。\n修改基础属性后使用此命令。';
-  cmdRecalc.solve = function(ctx, msg, cmdArgs) {
+  cmdRecalc.solve = function (ctx, msg, cmdArgs) {
     var derived = calcDerivedFromCard(ctx);
     writeDerived(ctx, derived);
     var output = '✓ 衍生属性已重算\n';
@@ -1332,18 +1436,19 @@ if (!seal.ext.find('cyws')) {
   ext.cmdMap['重算'] = cmdRecalc;
 
   // 攻击伤害计算辅助函数
-  function handleAttackDamage(ctx, msg, output, resolvedSkill, skillValue, judge) {
+  // mctx: 被代骰者的ctx（读取角色卡）  replyCtx: 原始ctx（发送消息）
+  function handleAttackDamage(mctx, replyCtx, msg, output, resolvedSkill, skillValue, judge) {
     if (judge.level === '失败' || judge.level === '大失败') {
       output += '━━━━━━━━━━━━━━━\n攻击未命中';
       if (judge.level === '大失败') output += '\n💀 大失败！由KP裁定意外效果';
-      seal.replyToSender(ctx, msg, output);
+      seal.replyToSender(replyCtx, msg, output);
       return seal.ext.newCmdExecuteResult(true);
     }
 
     output += '━━━━━━━━━━━━━━━\n伤害计算：\n';
     var weaponDmg = 0;
     var weaponDetail = '';
-    var meta = getMeta(ctx);
+    var meta = getMeta(mctx);
     var weapons = meta.weapons || {};
     var weaponKeys = Object.keys(weapons);
     var isMaximized = (judge.level === '大成功');
@@ -1356,13 +1461,13 @@ if (!seal.ext.find('cyws')) {
         weaponDmg = maxResult.total;
         weaponDetail = '武器[' + wName + ']: ' + wFormula + ' → MAX ' + maxResult.detail + ' = ' + weaponDmg;
       } else {
-        var wResult = rollDetailed(ctx, wFormula);
+        var wResult = rollDetailed(mctx, wFormula);
         weaponDmg = wResult.total;
         weaponDetail = '武器[' + wName + ']: ' + wFormula + ' → ' + wResult.detail + ' = ' + weaponDmg;
       }
     }
 
-    var dbStr = getStr(ctx, 'DB', '0');
+    var dbStr = getStr(mctx, 'DB', '0');
     var dbDmg = 0, dbDetail = '';
     if (dbStr === '0') {
       dbDmg = 0; dbDetail = '0';
@@ -1370,21 +1475,21 @@ if (!seal.ext.find('cyws')) {
       var maxDB = maximizeDiceExpr(dbStr);
       dbDmg = maxDB.total; dbDetail = 'MAX ' + maxDB.detail;
     } else {
-      var dbResult = rollDetailed(ctx, dbStr);
+      var dbResult = rollDetailed(mctx, dbStr);
       dbDmg = dbResult.total; dbDetail = dbResult.detail;
     }
 
-    var qi = getInt(ctx, '灵气', 0);
-    var hp = getInt(ctx, 'HP', 0);
+    var qi = getInt(mctx, '灵气', 0);
+    var hp = getInt(mctx, 'HP', 0);
     var adbDmg = 0, adbDetail = '';
     var adbAttached = qi > hp;
 
     if (adbAttached) {
-      var adbStr = getStr(ctx, 'ADB', '0');
+      var adbStr = getStr(mctx, 'ADB', '0');
       if (adbStr === '0') {
         adbDmg = 0; adbDetail = '0';
       } else {
-        var adbResult = rollDetailed(ctx, adbStr);
+        var adbResult = rollDetailed(mctx, adbStr);
         adbDmg = adbResult.total; adbDetail = adbResult.detail;
       }
     }
@@ -1392,7 +1497,7 @@ if (!seal.ext.find('cyws')) {
     if (weaponDetail) output += weaponDetail + '\n';
     output += 'DB: ' + dbStr + ' → ' + dbDetail + ' = ' + dbDmg + '\n';
     if (adbAttached) {
-      output += 'ADB: ' + getStr(ctx, 'ADB', '0') + ' → ' + adbDetail + ' = ' + adbDmg + '\n';
+      output += 'ADB: ' + getStr(mctx, 'ADB', '0') + ' → ' + adbDetail + ' = ' + adbDmg + '\n';
     } else {
       output += 'ADB: ⚠️灵气(' + qi + ')≤HP(' + hp + ')，不附加ADB\n';
     }
@@ -1401,15 +1506,18 @@ if (!seal.ext.find('cyws')) {
     output += '━━━━━━━━━━━━━━━\n总伤害：' + totalDmg;
     if (isMaximized) output += '\n✨ 大成功！武器伤害骰已取最大值（DB/ADB不翻倍）';
 
-    seal.replyToSender(ctx, msg, output);
+    seal.replyToSender(replyCtx, msg, output);
     return seal.ext.newCmdExecuteResult(true);
   }
 
   // 5.7 .攻击 命令
   var cmdAttack = seal.ext.newCmdItemInfo();
   cmdAttack.name = '攻击';
-  cmdAttack.help = '⚔️ .攻击 [技能名] — 攻击检定+伤害计算\n\n先做技能检定(1D100)，命中后自动计算伤害：\n· 武器伤害骰（从.st录入的武器读取）\n· + DB（力量+体型查表）\n· + ADB（仅灵气>HP时附加）\n\n大成功：武器伤害骰取最大值（DB/ADB不翻倍）\n大失败：提示由KP裁定意外效果\n\n默认技能：战斗:器\n支持格式：\n· .攻击              默认技能\n· .攻击 战斗:体      指定技能\n· .攻击 战斗:器 60   手动指定技能值\n· .攻击 60           默认技能+手动值\n· .攻击战斗:器+10    紧凑格式+临时加值\n\n例：.攻击  .攻击 战斗:体  .攻击 60';
-  cmdAttack.solve = function(ctx, msg, cmdArgs) {
+  cmdAttack.help = '⚔️ .攻击 [技能名] — 攻击检定+伤害计算\n\n先做技能检定(1D100)，命中后自动计算伤害：\n· 武器伤害骰（从.st录入的武器读取）\n· + DB（力量+体型查表）\n· + ADB（仅灵气>HP时附加）\n\n大成功：武器伤害骰取最大值（DB/ADB不翻倍）\n大失败：提示由KP裁定意外效果\n\n默认技能：战斗:器\n支持代骰：.攻击 @A玩家\n支持格式：\n· .攻击              默认技能\n· .攻击 战斗:体      指定技能\n· .攻击 战斗:器 60   手动指定技能值\n· .攻击 60           默认技能+手动值\n· .攻击战斗:器+10    紧凑格式+临时加值\n\n例：.攻击  .攻击 战斗:体  .攻击 60';
+  cmdAttack.allowDelegate = true;
+  cmdAttack.solve = function (ctx, msg, cmdArgs) {
+    var mctx = seal.getCtxProxyFirst(ctx, cmdArgs);
+    mctx.delegateText = ctx.delegateText || '';
     var arg1 = cmdArgs.getArgN(1) || '';
     var arg2 = cmdArgs.getArgN(2) || '';
 
@@ -1418,13 +1526,12 @@ if (!seal.ext.find('cyws')) {
       var parsed60 = { skillName: '战斗:器', baseValue: parseInt(arg1, 10), bonus: 0, isManual: true };
       var resolvedSkill60 = resolveAttrName(parsed60.skillName);
       var skillValue60 = parsed60.baseValue;
-      var rollResult60 = roll(ctx, '1d100');
+      var rollResult60 = roll(mctx, '1d100');
       var judge60 = judgeSuccess(rollResult60, skillValue60);
-      var output60 = '⚔️ 攻击检定\n━━━━━━━━━━━━━━━\n';
-      output60 += '角色：' + ctx.player.name + ' | 技能：' + resolvedSkill60 + ' (' + skillValue60 + '%) [手动]\n';
+      var output60 = mctx.delegateText + '⚔️ 攻击检定\n━━━━━━━━━━━━━━━\n';
+      output60 += '角色：' + mctx.player.name + ' | 技能：' + resolvedSkill60 + ' (' + skillValue60 + '%) [手动]\n';
       output60 += '🎲 1D100 = ' + rollResult60 + ' → ' + judge60.level + '\n';
-      // 复用后续伤害计算逻辑（见下方）
-      return handleAttackDamage(ctx, msg, output60, resolvedSkill60, skillValue60, judge60);
+      return handleAttackDamage(mctx, ctx, msg, output60, resolvedSkill60, skillValue60, judge60);
     }
 
     var parsed = parseRaInput(cmdArgs);
@@ -1434,32 +1541,41 @@ if (!seal.ext.find('cyws')) {
     var isManual = parsed.isManual;
 
     var resolvedSkill = resolveAttrName(skillName);
+    // 妖丹加成：技能+10%
+    var mctxMarkersAtk = getMarkers(mctx);
+    var hasYaoDanAtk = mctxMarkersAtk.indexOf('妖丹') >= 0 && mctxMarkersAtk.indexOf('妖丹碎') < 0;
+    var yaoDanSkillBonus = 0;
     var skillValue;
     if (baseValue !== null) {
       skillValue = baseValue + bonus;
     } else {
-      skillValue = getInt(ctx, resolvedSkill, -1);
+      skillValue = getInt(mctx, resolvedSkill, -1);
       if (skillValue < 0 && SKILL_DEFAULTS.hasOwnProperty(resolvedSkill)) {
         skillValue = SKILL_DEFAULTS[resolvedSkill];
       }
       if (skillValue < 0) skillValue = 0;
-      skillValue += bonus;
+      if (hasYaoDanAtk) {
+        yaoDanSkillBonus = Math.floor(skillValue * 0.1);
+      }
+      skillValue += bonus + yaoDanSkillBonus;
     }
-    var rollResult = roll(ctx, '1d100');
+    var rollResult = roll(mctx, '1d100');
     var judge = judgeSuccess(rollResult, skillValue);
 
     var valStr = skillValue + '%';
     if (isManual) {
       valStr = baseValue + '%' + (bonus !== 0 ? (bonus > 0 ? '+' + bonus : '' + bonus) : '') + ' [手动]';
-    } else if (bonus !== 0) {
-      var cardAtk = getInt(ctx, resolvedSkill, 0);
-      valStr = cardAtk + '%' + (bonus > 0 ? '+' + bonus : '' + bonus) + ' [临时]';
+    } else if (bonus !== 0 || yaoDanSkillBonus > 0) {
+      var cardAtk = getInt(mctx, resolvedSkill, 0);
+      valStr = cardAtk + '%'
+        + (bonus !== 0 ? (bonus > 0 ? '+' + bonus : '' + bonus) + ' [临时]' : '')
+        + (yaoDanSkillBonus > 0 ? '+' + yaoDanSkillBonus + ' [妖丹]' : '');
     }
-    var output = '⚔️ 攻击检定\n━━━━━━━━━━━━━━━\n';
-    output += '角色：' + ctx.player.name + ' | 技能：' + resolvedSkill + ' (' + valStr + ')\n';
+    var output = mctx.delegateText + '⚔️ 攻击检定\n━━━━━━━━━━━━━━━\n';
+    output += '角色：' + mctx.player.name + ' | 技能：' + resolvedSkill + ' (' + valStr + ')\n';
     output += '🎲 1D100 = ' + rollResult + ' → ' + judge.level + '\n';
 
-    return handleAttackDamage(ctx, msg, output, resolvedSkill, skillValue, judge);
+    return handleAttackDamage(mctx, ctx, msg, output, resolvedSkill, skillValue, judge);
   };
   ext.cmdMap['攻击'] = cmdAttack;
 
@@ -1467,7 +1583,7 @@ if (!seal.ext.find('cyws')) {
   var cmdHurt = seal.ext.newCmdItemInfo();
   cmdHurt.name = '受伤';
   cmdHurt.help = '💔 .受伤 <数值> — 扣减HP\n\n自动减去护甲值（音灵根攻击时无视护甲）。\n鬼修HP始终为0，提示扣减灵气代替。\n\nHP≤0：提示昏迷(1D6轮)\nHP≤-体质：提示角色死亡\n\n例：.受伤 12';
-  cmdHurt.solve = function(ctx, msg, cmdArgs) {
+  cmdHurt.solve = function (ctx, msg, cmdArgs) {
     var dmg = Number(cmdArgs.getArgN(1));
     if (!dmg) {
       seal.replyToSender(ctx, msg, '用法: .受伤 <数值>');
@@ -1507,11 +1623,149 @@ if (!seal.ext.find('cyws')) {
   };
   ext.cmdMap['受伤'] = cmdHurt;
 
+  // 5.8.1 .妖丹 命令
+  var cmdYaoDan = seal.ext.newCmdItemInfo();
+  cmdYaoDan.name = '妖丹';
+  cmdYaoDan.help = '🔵 .妖丹 <子命令> — 妖丹管理（妖族专用）\n\n.妖丹 出 — 妖丹离体，添加<妖丹>标记，检定自动+5属性/+10%技能\n.妖丹 受伤 <数值> — 扣减妖丹HP，妖丹HP≤0则破碎（HP上限减半）\n.妖丹 回 — 战斗结束归体，清除标记恢复原状\n.妖丹 状态 — 查看妖丹HP和状态';
+  cmdYaoDan.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
+    var subCmd = cmdArgs.getArgN(1);
+    var race = getStr(ctx, '种族', '人族');
+    if (race !== '妖') {
+      seal.replyToSender(ctx, msg, '⚠️ 妖丹仅限妖族使用，当前种族：' + race);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    var markers = getMarkers(ctx);
+    var hasDanOut = markers.indexOf('妖丹') >= 0;
+    var hasDanBroken = markers.indexOf('妖丹碎') >= 0;
+
+    if (subCmd === '出' || subCmd === '离体') {
+      if (hasDanOut) {
+        seal.replyToSender(ctx, msg, '⚠️ 妖丹已离体，无需重复操作');
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      if (hasDanBroken) {
+        seal.replyToSender(ctx, msg, '⚠️ 妖丹已破碎，无法离体');
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      // 添加妖丹标记
+      markers.push('妖丹');
+      setMarkers(ctx, markers);
+      // 计算妖丹HP = 1/5 最大HP
+      var maxHp = getInt(ctx, '最大HP', 0);
+      var danHp = Math.max(1, Math.floor(maxHp / 5));
+      setInt(ctx, '妖丹HP', danHp);
+      setInt(ctx, '妖丹最大HP', danHp);
+
+      var output = '🔵 妖丹离体\n━━━━━━━━━━━━━━━\n';
+      output += '角色：' + ctx.player.name + '\n';
+      output += '妖丹HP：' + danHp + '/' + danHp + '（最大HP的1/5）\n';
+      output += '━━━━━━━━━━━━━━━\n';
+      output += '加成已生效：所有属性+5，技能+10%\n';
+      output += '⚠️ 妖丹离体后可被攻击（攻击者需困难成功对应技能）\n';
+      output += '⚠️ 战斗中取出后无法归体，直到战斗结束';
+      seal.replyToSender(ctx, msg, output);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    if (subCmd === '受伤') {
+      if (!hasDanOut) {
+        seal.replyToSender(ctx, msg, '⚠️ 妖丹未离体');
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      var dmg = Number(cmdArgs.getArgN(2));
+      if (!dmg || dmg <= 0) {
+        seal.replyToSender(ctx, msg, '用法: .妖丹 受伤 <数值>');
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      var curDanHp = getInt(ctx, '妖丹HP', 0);
+      var newDanHp = curDanHp - dmg;
+
+      var output = '🔵 妖丹受伤\n━━━━━━━━━━━━━━━\n';
+      output += '妖丹HP：' + curDanHp + ' → ' + newDanHp + '\n';
+
+      if (newDanHp <= 0) {
+        // 妖丹破碎
+        setInt(ctx, '妖丹HP', 0);
+        markers = getMarkers(ctx);
+        // 移除<妖丹>标记，添加<妖丹碎>标记
+        markers = markers.filter(function (m) { return m !== '妖丹'; });
+        if (markers.indexOf('妖丹碎') < 0) markers.push('妖丹碎');
+        setMarkers(ctx, markers);
+        // HP上限减半
+        var oldMaxHp = getInt(ctx, '最大HP', 0);
+        var newMaxHp = Math.max(1, Math.floor(oldMaxHp / 2));
+        setInt(ctx, '最大HP', newMaxHp);
+        var curHp = getInt(ctx, 'HP', 0);
+        if (curHp > newMaxHp) setInt(ctx, 'HP', newMaxHp);
+        output += '💀 妖丹破碎！\n';
+        output += '本体最大HP：' + oldMaxHp + ' → ' + newMaxHp + '\n';
+        if (curHp > newMaxHp) output += '本体HP：' + curHp + ' → ' + newMaxHp + '\n';
+        output += '⚠️ 妖丹破碎后加成消失，修为尽失';
+      } else {
+        setInt(ctx, '妖丹HP', newDanHp);
+        output += '妖丹仍在，加成持续';
+      }
+      seal.replyToSender(ctx, msg, output);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    if (subCmd === '回' || subCmd === '归体') {
+      if (!hasDanOut && !hasDanBroken) {
+        seal.replyToSender(ctx, msg, '⚠️ 妖丹未离体');
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      // 清除妖丹相关标记
+      markers = markers.filter(function (m) { return m !== '妖丹' && m !== '妖丹碎'; });
+      setMarkers(ctx, markers);
+      // 清除妖丹HP属性
+      setInt(ctx, '妖丹HP', 0);
+      setInt(ctx, '妖丹最大HP', 0);
+      // 如果妖丹破碎过，恢复最大HP（取回完整妖丹后恢复）
+      if (hasDanBroken) {
+        var curMaxHp = getInt(ctx, '最大HP', 0);
+        var restoredMaxHp = curMaxHp * 2;
+        setInt(ctx, '最大HP', restoredMaxHp);
+        var output = '🔵 妖丹归体\n━━━━━━━━━━━━━━━\n';
+        output += '妖丹已破碎，但归体后本体恢复\n';
+        output += '最大HP：' + curMaxHp + ' → ' + restoredMaxHp + '\n';
+        output += '⚠️ 妖丹破碎带来的修为损失需由GM判定是否恢复';
+        seal.replyToSender(ctx, msg, output);
+      } else {
+        seal.replyToSender(ctx, msg, '🔵 妖丹归体\n━━━━━━━━━━━━━━━\n妖丹已归体，加成消失，恢复正常状态');
+      }
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    if (subCmd === '状态') {
+      var output = '🔵 妖丹状态\n━━━━━━━━━━━━━━━\n';
+      if (hasDanBroken) {
+        output += '状态：破碎 💀\n';
+        output += '本体最大HP已减半\n';
+        output += '⚠️ 加成已消失，修为尽失';
+      } else if (hasDanOut) {
+        output += '状态：离体中\n';
+        output += '妖丹HP：' + getInt(ctx, '妖丹HP', 0) + '/' + getInt(ctx, '妖丹最大HP', 0) + '\n';
+        output += '加成：属性+5 / 技能+10%\n';
+        output += '⚠️ 妖丹可被攻击，战斗中无法归体';
+      } else {
+        output += '状态：体内（未离体）';
+      }
+      seal.replyToSender(ctx, msg, output);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    seal.replyToSender(ctx, msg, cmdYaoDan.help);
+    return seal.ext.newCmdExecuteResult(true);
+  };
+  ext.cmdMap['妖丹'] = cmdYaoDan;
+
   // 5.9 .施法 命令
   var cmdCast = seal.ext.newCmdItemInfo();
   cmdCast.name = '施法';
   cmdCast.help = '🔮 .施法 <法术名> [pp/灵] — 施放法术\n\n第一步：.施法 <法术名> 查看法术信息和消耗选项\n第二步：选择消耗方式\n  pp — 消耗PP施放\n  灵 — 消耗灵气施放\n\n长时法术战斗中无法使用。\n\n例：.施法 摧枯拉朽 → .施法 摧枯拉朽 pp\n例：.施法 兵戈 → .施法 兵戈 灵';
-  cmdCast.solve = function(ctx, msg, cmdArgs) {
+  cmdCast.solve = function (ctx, msg, cmdArgs) {
     var spellName = cmdArgs.getArgN(1);
     var costType = cmdArgs.getArgN(2);
     if (!spellName) {
@@ -1574,10 +1828,10 @@ if (!seal.ext.find('cyws')) {
   var cmdMartial = seal.ext.newCmdItemInfo();
   cmdMartial.name = '功法';
   cmdMartial.help = '🥋 .功法 <模式> <技能名> — 功法检定\n\n三种模式：\n· 攻击 — 功法成功时武器数值骰翻倍（DB/ADB不翻倍）\n· 防御 — 功法成功时抵消15点伤害\n· 干扰 — 功法成功时附带攻击效果（不含DB/ADB）\n\n先做技能检定，成功后再做功法检定(功法值%)。\n\n例：.功法 攻击 战斗:器\n例：.功法 防御 闪避\n例：.功法 干扰 灵力控制';
-  cmdMartial.solve = function(ctx, msg, cmdArgs) {
+  cmdMartial.solve = function (ctx, msg, cmdArgs) {
     var mode = cmdArgs.getArgN(1);
     var skillName = cmdArgs.getArgN(2);
-    if (['攻击','防御','干扰'].indexOf(mode) < 0 || !skillName) {
+    if (['攻击', '防御', '干扰'].indexOf(mode) < 0 || !skillName) {
       seal.replyToSender(ctx, msg, '用法: .功法 <攻击/防御/干扰> <技能名>');
       return seal.ext.newCmdExecuteResult(true);
     }
@@ -1623,7 +1877,7 @@ if (!seal.ext.find('cyws')) {
   var cmdBattle = seal.ext.newCmdItemInfo();
   cmdBattle.name = '战斗';
   cmdBattle.help = '⚔️ .战斗 on/off — 战斗状态管理\n\n.战斗 on  — 开启战斗，显示DEX供KP排列行动顺序\n.战斗 off — 结束战斗';
-  cmdBattle.solve = function(ctx, msg, cmdArgs) {
+  cmdBattle.solve = function (ctx, msg, cmdArgs) {
     var action = cmdArgs.getArgN(1);
     if (action === 'on') {
       var meta = getMeta(ctx);
@@ -1633,6 +1887,9 @@ if (!seal.ext.find('cyws')) {
       output += '行动顺序请KP根据DEX手动排列\n';
       output += ctx.player.name + ' DEX:' + getInt(ctx, '敏捷', 0) + '\n';
       output += '━━━━━━━━━━━━━━━\n提示：使用 .攻击 <技能> 发起攻击';
+      if (getStr(ctx, '种族', '人族') === '妖') {
+        output += '\n🔵 妖族可用 .妖丹 管理妖丹（离体+5属性/+10%技能），详见 .餐云 help 战斗';
+      }
       seal.replyToSender(ctx, msg, output);
     } else if (action === 'off') {
       var meta2 = getMeta(ctx);
@@ -1650,7 +1907,7 @@ if (!seal.ext.find('cyws')) {
   var cmdStatus = seal.ext.newCmdItemInfo();
   cmdStatus.name = '状态';
   cmdStatus.help = '📊 .状态 — 查看角色状态\n\n显示：灵根/职业/境界 + HP/PP血条 + 灵气 + DB/ADB/护甲 + 状态标记';
-  cmdStatus.solve = function(ctx, msg, cmdArgs) {
+  cmdStatus.solve = function (ctx, msg, cmdArgs) {
     var hp = getInt(ctx, 'HP', 0);
     var maxHp = getInt(ctx, '最大HP', 0);
     var pp = getInt(ctx, 'PP', 0);
@@ -1694,7 +1951,7 @@ if (!seal.ext.find('cyws')) {
   var cmdQi = seal.ext.newCmdItemInfo();
   cmdQi.name = '灵气';
   cmdQi.help = '💨 .灵气 <+/-数值> — 灵气增减\n\n灵气影响：ADB附加（灵气>HP时才能加ADB）、PP上限(PP=灵气/5)。\n灵气低于HP：攻击不再附加ADB\n灵气归零：需意志检定判断是否昏迷\n\n例：.灵气 -5  .灵气 +10';
-  cmdQi.solve = function(ctx, msg, cmdArgs) {
+  cmdQi.solve = function (ctx, msg, cmdArgs) {
     var val = cmdArgs.getArgN(1);
     if (!val) {
       seal.replyToSender(ctx, msg, '用法: .灵气 <+/-数值>');
@@ -1719,7 +1976,7 @@ if (!seal.ext.find('cyws')) {
   var cmdHp = seal.ext.newCmdItemInfo();
   cmdHp.name = 'hp';
   cmdHp.help = '💓 .hp <+/-数值> — HP增减\n\nHP≤0：昏迷(1D6轮)\nHP≤-体质：角色死亡\n\n例：.hp -12  .hp +5';
-  cmdHp.solve = function(ctx, msg, cmdArgs) {
+  cmdHp.solve = function (ctx, msg, cmdArgs) {
     var val = cmdArgs.getArgN(1) || '0';
     var num = Number(val);
     var newHp = modInt(ctx, 'HP', num);
@@ -1736,7 +1993,7 @@ if (!seal.ext.find('cyws')) {
   var cmdMarker = seal.ext.newCmdItemInfo();
   cmdMarker.name = '标记';
   cmdMarker.help = '🏷️ .标记 <+名称/-名称> — 状态标记管理\n\n添加或移除状态标记（中毒、流血、眩晕等）。\n操作后显示当前全部标记。\n\n例：.标记 +中毒  .标记 -中毒';
-  cmdMarker.solve = function(ctx, msg, cmdArgs) {
+  cmdMarker.solve = function (ctx, msg, cmdArgs) {
     var action = cmdArgs.getArgN(1);
     if (!action) {
       seal.replyToSender(ctx, msg, '用法: .标记 <+名称> 或 .标记 -名称');
@@ -1747,10 +2004,10 @@ if (!seal.ext.find('cyws')) {
       markers.push(action.substring(1));
     } else if (action.startsWith('-')) {
       var removeName = action.substring(1);
-      markers = markers.filter(function(m) { return m !== removeName; });
+      markers = markers.filter(function (m) { return m !== removeName; });
     }
     setMarkers(ctx, markers);
-    var markerStr = markers.length > 0 ? markers.map(function(m) { return '<' + m + '>'; }).join(' | ') : '无';
+    var markerStr = markers.length > 0 ? markers.map(function (m) { return '<' + m + '>'; }).join(' | ') : '无';
     seal.replyToSender(ctx, msg, '当前状态标记：' + markerStr);
     return seal.ext.newCmdExecuteResult(true);
   };
@@ -1759,7 +2016,7 @@ if (!seal.ext.find('cyws')) {
   var cmdGrowthMark = seal.ext.newCmdItemInfo();
   cmdGrowthMark.name = '成长标记';
   cmdGrowthMark.help = '📈 .成长标记 — 查看可成长技能\n.成长标记 清空 — 清空所有成长标记\n\n特殊成功和大成功会自动获得成长标记，标记后可用.成长检定提升技能。';
-  cmdGrowthMark.solve = function(ctx, msg, cmdArgs) {
+  cmdGrowthMark.solve = function (ctx, msg, cmdArgs) {
     var subCmd = cmdArgs.getArgN(1);
     var meta = getMeta(ctx);
     if (subCmd === '清空') {
@@ -1787,14 +2044,14 @@ if (!seal.ext.find('cyws')) {
   var cmdGrow = seal.ext.newCmdItemInfo();
   cmdGrow.name = '成长';
   cmdGrow.help = '📈 .成长 <技能名> — 成长检定\n\n掷1D100，出目>技能值则成长成功，技能+1D10。\n仅标记了成长标记的技能建议进行成长检定。\n\n成长与跑团日志联动：.log on 时检定自动标记成长，.log off 时需用 .成长 ra\n\n用法：\n· .成长 <技能名>       单项成长检定\n· .成长 ra <技能名>    检定+强制成长标记（log off时使用）\n· .成长 all            批量成长所有已标记技能\n· .成长 技能1 技能2    批量成长指定技能\n\n例：.成长 闪避  .成长 战斗:器  .成长 ra 侦查  .成长 all';
-  cmdGrow.solve = function(ctx, msg, cmdArgs) {
+  cmdGrow.solve = function (ctx, msg, cmdArgs) {
     var text = (cmdArgs.getRestArgsFrom(1) || '').trim();
     if (!text) {
       seal.replyToSender(ctx, msg, '用法: .成长 <技能名> | .成长 ra <技能> | .成长 all | .成长 技能1 技能2');
       return seal.ext.newCmdExecuteResult(true);
     }
 
-    var tokens = text.split(/\s+/).filter(function(t) { return t.length > 0; });
+    var tokens = text.split(/\s+/).filter(function (t) { return t.length > 0; });
     var arg1 = tokens[0];
 
     // .成长 ra <技能名> — 检定+强制成长标记
@@ -1932,7 +2189,7 @@ if (!seal.ext.find('cyws')) {
   var cmdWeaponDel = seal.ext.newCmdItemInfo();
   cmdWeaponDel.name = '武器删除';
   cmdWeaponDel.help = '⚔️ .武器删除 <武器名> — 删除角色武器\n\n从角色卡中移除指定武器。\n\n例：.武器删除 本命剑\n别名：.武器移除';
-  cmdWeaponDel.solve = function(ctx, msg, cmdArgs) {
+  cmdWeaponDel.solve = function (ctx, msg, cmdArgs) {
     var wName = cmdArgs.getArgN(1);
     if (!wName) {
       seal.replyToSender(ctx, msg, '用法: .武器删除 <武器名>\n使用 .st 查看 当前武器列表');
@@ -1961,7 +2218,7 @@ if (!seal.ext.find('cyws')) {
   var cmdLearnSpell = seal.ext.newCmdItemInfo();
   cmdLearnSpell.name = '法术学习';
   cmdLearnSpell.help = '📜 .法术学习 <法术名> [品阶] — 学习法术\n\n学习预置法术或22种职业法术。\n职业法术品阶需指定：天(7点)/地(5点)/玄(3点)/黄(1点)\n被动法术不占用法术点。\n\n例：.法术学习 摧枯拉朽\n例：.法术学习 兵戈 黄\n例：.法术学习 蛊术 玄';
-  cmdLearnSpell.solve = function(ctx, msg, cmdArgs) {
+  cmdLearnSpell.solve = function (ctx, msg, cmdArgs) {
     var spellName = cmdArgs.getArgN(1);
     var grade = cmdArgs.getArgN(2);
     if (!spellName) {
@@ -2016,7 +2273,7 @@ if (!seal.ext.find('cyws')) {
   var cmdSpellList = seal.ext.newCmdItemInfo();
   cmdSpellList.name = '法术列表';
   cmdSpellList.help = '📜 .法术列表 — 查看已学法术\n\n显示每个法术的品阶、消耗、施放时间，以及法术点使用情况。';
-  cmdSpellList.solve = function(ctx, msg, cmdArgs) {
+  cmdSpellList.solve = function (ctx, msg, cmdArgs) {
     var spellData = getSpells(ctx);
     if (spellData.list.length === 0) {
       seal.replyToSender(ctx, msg, '尚未学习任何法术');
@@ -2038,7 +2295,7 @@ if (!seal.ext.find('cyws')) {
   var cmdCreateSpell = seal.ext.newCmdItemInfo();
   cmdCreateSpell.name = '法术创建';
   cmdCreateSpell.help = '📜 .法术创建 <名称> <品阶> [消耗] [时间] [效果] — 创建自创法术\n\n品阶必填：天(7点)/地(5点)/玄(3点)/黄(1点)/不入流(0点)\n消耗可选：如 5PP / 10灵气 / 5PP/20灵气（默认"按设定"）\n时间可选：即时/短时/长时/被动（默认"即时"）\n效果可选：剩余文本作为效果描述（默认"自定义法术"）\n\n例：.法术创建 火球术 玄 5PP 即时 向目标投掷火球\n例：.法术创建 护盾 黄 3PP 短时 形成灵气护盾\n例：.法术创建 被动天赋 不入流 被动 某种被动效果';
-  cmdCreateSpell.solve = function(ctx, msg, cmdArgs) {
+  cmdCreateSpell.solve = function (ctx, msg, cmdArgs) {
     var spellName = cmdArgs.getArgN(1);
     var grade = cmdArgs.getArgN(2);
     if (!spellName || !grade) {
@@ -2106,7 +2363,7 @@ if (!seal.ext.find('cyws')) {
   var cmdDeleteSpell = seal.ext.newCmdItemInfo();
   cmdDeleteSpell.name = '法术删除';
   cmdDeleteSpell.help = '📜 .法术删除 <法术名> — 遗忘已学法术\n\n删除指定法术并退还法术点（被动法术不退还）。\n\n例：.法术删除 火球术\n别名：.法术遗忘';
-  cmdDeleteSpell.solve = function(ctx, msg, cmdArgs) {
+  cmdDeleteSpell.solve = function (ctx, msg, cmdArgs) {
     var spellName = cmdArgs.getArgN(1);
     if (!spellName) {
       seal.replyToSender(ctx, msg, '用法: .法术删除 <法术名>');
@@ -2149,7 +2406,7 @@ if (!seal.ext.find('cyws')) {
   var cmdRecover = seal.ext.newCmdItemInfo();
   cmdRecover.name = '回复';
   cmdRecover.help = '💨 .回复 [休息/行动/修炼] — 灵气回复规则查询\n\n· 休息：每半个时辰回复1点PP\n· 行动：每时辰回复2点PP\n· 修炼：不回复PP\n\n查询后需手动执行 .灵气 +<数值>';
-  cmdRecover.solve = function(ctx, msg, cmdArgs) {
+  cmdRecover.solve = function (ctx, msg, cmdArgs) {
     var mode = cmdArgs.getArgN(1);
     var pp = getInt(ctx, 'PP', 0);
     var maxPp = getInt(ctx, '最大PP', 0);
@@ -2167,9 +2424,9 @@ if (!seal.ext.find('cyws')) {
   var cmdCreate = seal.ext.newCmdItemInfo();
   cmdCreate.name = '制卡';
   cmdCreate.help = '🎲 .制卡 — 引导式制卡\n\n一次完成：投掷7项属性+气运+灵气 + 掷1D8个人特点+1D20额外经历。\n完成后请在Excel角色卡中选择灵根/种族/境界/职业/技能/法术，再用.st录入。';
-  cmdCreate.solve = function(ctx, msg, cmdArgs) {
+  cmdCreate.solve = function (ctx, msg, cmdArgs) {
     var output = '🎲 餐云卧石制卡\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
-    var attrExprs = [['力量','3d6*5'],['体质','3d6*5'],['体型','2d6*5+30'],['智力','2d6*5+30'],['意志','3d6*5'],['敏捷','3d6*5'],['外貌','3d6*5']];
+    var attrExprs = [['力量', '3d6*5'], ['体质', '3d6*5'], ['体型', '2d6*5+30'], ['智力', '2d6*5+30'], ['意志', '3d6*5'], ['敏捷', '3d6*5'], ['外貌', '3d6*5']];
     for (var i = 0; i < attrExprs.length; i++) {
       output += attrExprs[i][0] + ':' + roll(ctx, attrExprs[i][1]) + ' ';
     }
@@ -2190,13 +2447,13 @@ if (!seal.ext.find('cyws')) {
     var cmd = seal.ext.newCmdItemInfo();
     cmd.name = name;
     cmd.help = helpText;
-    cmd.solve = function(ctx, msg, cmdArgs) {
+    cmd.solve = function (ctx, msg, cmdArgs) {
       return solveFn(ctx, msg, cmdArgs);
     };
     ext.cmdMap[name] = cmd;
   }
 
-  makeQueryCmd('灵根查询', '📖 .灵根查询 <名称> — 查询灵根属性加成和特殊能力\n\n13种灵根：金/木/水/火/土（五行）\n音/花/幻/电/幽冥（变异灵根）\n血/毒/气（魔修灵根）\n\n例：.灵根查询 金  .灵根查询 音  .灵根查询 血', function(ctx, msg, cmdArgs) {
+  makeQueryCmd('灵根查询', '📖 .灵根查询 <名称> — 查询灵根属性加成和特殊能力\n\n13种灵根：金/木/水/火/土（五行）\n音/花/幻/电/幽冥（变异灵根）\n血/毒/气（魔修灵根）\n\n例：.灵根查询 金  .灵根查询 音  .灵根查询 血', function (ctx, msg, cmdArgs) {
     var qname = cmdArgs.getArgN(1);
     var info = SPIRIT_ROOTS[qname];
     if (!info) {
@@ -2204,15 +2461,21 @@ if (!seal.ext.find('cyws')) {
       return seal.ext.newCmdExecuteResult(true);
     }
     var output = '灵根：' + qname + '\n━━━━━━━━━━━━━━━\n';
-    if (info.stat) output += '属性加成：' + info.stat + '+' + info.bonus + '\n';
-    if (info.isVariant) output += '变异灵根（' + info.parent + '之变异）\n';
-    if (info.isDemonic) output += '魔修灵根\n';
+    if (info.stat) {
+      output += '属性加成：' + info.stat + '+' + info.bonus + '\n';
+      output += '类型：五行灵根\n';
+      if (info.variant) output += '变异方向：' + info.variant + '\n';
+    } else if (info.isVariant) {
+      output += '类型：变异灵根（' + info.parent + '之变异）\n';
+    } else if (info.isDemonic) {
+      output += '类型：魔修灵根\n';
+    }
     output += '能力：' + info.desc;
     seal.replyToSender(ctx, msg, output);
     return seal.ext.newCmdExecuteResult(true);
   });
 
-  makeQueryCmd('境界查询', '📖 .境界查询 <名称> — 查询境界ADB和法术点\n\n6种境界：炼气/筑基/金丹/元婴/化神/大乘\n\n例：.境界查询 筑基  .境界查询 金丹', function(ctx, msg, cmdArgs) {
+  makeQueryCmd('境界查询', '📖 .境界查询 <名称> — 查询境界ADB和法术点\n\n6种境界：炼气/筑基/金丹/元婴/化神/大乘\n\n例：.境界查询 筑基  .境界查询 金丹', function (ctx, msg, cmdArgs) {
     var qname = cmdArgs.getArgN(1);
     var info = REALMS[qname];
     if (!info) {
@@ -2223,7 +2486,7 @@ if (!seal.ext.find('cyws')) {
     return seal.ext.newCmdExecuteResult(true);
   });
 
-  makeQueryCmd('种族查询', '📖 .种族查询 <名称> — 查询种族加成和特殊规则\n\n9种种族：人族/鲛人/羽民/半妖/鬼魂/鬼修/妖/怪/灵\n\n例：.种族查询 鬼修  .种族查询 妖', function(ctx, msg, cmdArgs) {
+  makeQueryCmd('种族查询', '📖 .种族查询 <名称> — 查询种族加成和特殊规则\n\n9种种族：人族/鲛人/羽民/半妖/鬼魂/鬼修/妖/怪/灵\n\n例：.种族查询 鬼修  .种族查询 妖', function (ctx, msg, cmdArgs) {
     var qname = cmdArgs.getArgN(1);
     var info = RACES[qname];
     if (!info) {
@@ -2231,17 +2494,20 @@ if (!seal.ext.find('cyws')) {
       return seal.ext.newCmdExecuteResult(true);
     }
     var output = '种族：' + qname + '\n━━━━━━━━━━━━━━━\n';
+    if (info.desc) output += '特性：' + info.desc + '\n';
     if (info.bonuses) {
+      var bonusList = [];
       for (var k in info.bonuses) {
-        if (info.bonuses.hasOwnProperty(k)) output += k + '+' + info.bonuses[k] + '\n';
+        if (info.bonuses.hasOwnProperty(k)) bonusList.push(k + '+' + info.bonuses[k] + '%');
       }
+      if (bonusList.length) output += '加成：' + bonusList.join('、') + '\n';
     }
-    if (info.special) output += '特殊：' + info.special;
+    if (info.special) output += '详细：' + info.special;
     seal.replyToSender(ctx, msg, output);
     return seal.ext.newCmdExecuteResult(true);
   });
 
-  makeQueryCmd('职业查询', '📖 .职业查询 <名称> — 查询职业适配灵根、技能和法术\n\n22种职业：蛊师/吊魂师/活无常/医修/偃师/丹青师/兵修/乐师/铸器师/符师/阵师/御兽师/蜃师/仙商/灵植师/灵厨/游方道人/合欢道人/毒修/血修/摄魂鬼/告死人\n\n例：.职业查询 兵修  .职业查询 蛊师', function(ctx, msg, cmdArgs) {
+  makeQueryCmd('职业查询', '📖 .职业查询 <名称> — 查询职业适配灵根、技能和法术\n\n22种职业：蛊师/吊魂师/活无常/医修/偃师/丹青师/兵修/乐师/铸器师/符师/阵师/御兽师/蜃师/仙商/灵植师/灵厨/游方道人/合欢道人/毒修/血修/摄魂鬼/告死人\n\n例：.职业查询 兵修  .职业查询 蛊师', function (ctx, msg, cmdArgs) {
     var qname = cmdArgs.getArgN(1);
     var info = PROFESSIONS[qname];
     if (!info) {
@@ -2263,7 +2529,7 @@ if (!seal.ext.find('cyws')) {
   var cmdNpc = seal.ext.newCmdItemInfo();
   cmdNpc.name = 'npc';
   cmdNpc.help = '🎭 .npc — NPC管理（KP专用）\n\n创建和管理NPC，无需切换角色卡即可为NPC检定/攻击/受伤。\n\n创建/更新：.npc add <名称> <属性值...>\n  例：.npc add 小兵A 力量50 体质40 闪避30 HP10 最大HP10 护甲2\n  DB/ADB等用=号：.npc add BossA 力量80 体型70 HP20 DB=+1D6 ADB=2D4\n\n检定：.npc <名称> ra <技能> [数值]\n  例：.npc 小兵A ra 闪避\n  例：.npc 小兵A ra 闪避 30（手动指定技能值）\n\n攻击：.npc <名称> 攻击 [技能] [数值]\n  例：.npc 小兵A 攻击 战斗:体\n\n受伤：.npc <名称> 受伤 <数值>\n  例：.npc 小兵A 受伤 8\n\nHP：.npc <名称> hp <+/-数值>\n灵气：.npc <名称> 灵气 <+/-数值>\n武器添加：.npc <名称> 武器 <武器名> <公式>\n  例：.npc 小兵A 武器 大刀 1d8+1d4\n武器删除：.npc <名称> 武器 del <武器名>\n  例：.npc 小兵A 武器 del 大刀\n\n查看：.npc <名称> st\n标记：.npc <名称> 标记 <+名称/-名称>\n删除：.npc <名称> del\n列表：.npc list\n清空：.npc clear\n帮助：.npc help';
-  cmdNpc.solve = function(ctx, msg, cmdArgs) {
+  cmdNpc.solve = function (ctx, msg, cmdArgs) {
     var text = cmdArgs.getRestArgsFrom(1);
     if (!text || text.trim() === '') {
       seal.replyToSender(ctx, msg, cmdNpc.help);
@@ -2292,7 +2558,7 @@ if (!seal.ext.find('cyws')) {
           var maxHpL = npcL.stats['最大HP'] || hpL;
           outL += namesL[li] + ' HP:' + hpL + '/' + maxHpL;
           if (npcL.markers && npcL.markers.length > 0) {
-            outL += ' ' + npcL.markers.map(function(m) { return '<' + m + '>'; }).join('');
+            outL += ' ' + npcL.markers.map(function (m) { return '<' + m + '>'; }).join('');
           }
           outL += '\n';
         }
@@ -2573,7 +2839,7 @@ if (!seal.ext.find('cyws')) {
         }
       }
       if (npc.markers && npc.markers.length > 0) {
-        outSt += '\n状态标记：' + npc.markers.map(function(m) { return '<' + m + '>'; }).join(' ');
+        outSt += '\n状态标记：' + npc.markers.map(function (m) { return '<' + m + '>'; }).join(' ');
       }
       seal.replyToSender(ctx, msg, outSt);
       return seal.ext.newCmdExecuteResult(true);
@@ -2592,7 +2858,7 @@ if (!seal.ext.find('cyws')) {
       var mkAction = tokens[2];
       if (!mkAction) {
         var mkList = npc.markers || [];
-        var mkStr = mkList.length > 0 ? mkList.map(function(m) { return '<' + m + '>'; }).join(' ') : '无';
+        var mkStr = mkList.length > 0 ? mkList.map(function (m) { return '<' + m + '>'; }).join(' ') : '无';
         seal.replyToSender(ctx, msg, npcName + ' 状态标记：' + mkStr);
         return seal.ext.newCmdExecuteResult(true);
       }
@@ -2601,10 +2867,10 @@ if (!seal.ext.find('cyws')) {
         npc.markers.push(mkAction.substring(1));
       } else if (mkAction.startsWith('-')) {
         var mkRemove = mkAction.substring(1);
-        npc.markers = npc.markers.filter(function(m) { return m !== mkRemove; });
+        npc.markers = npc.markers.filter(function (m) { return m !== mkRemove; });
       }
       setNpcs(ctx, npcs);
-      var mkStr2 = npc.markers.length > 0 ? npc.markers.map(function(m) { return '<' + m + '>'; }).join(' ') : '无';
+      var mkStr2 = npc.markers.length > 0 ? npc.markers.map(function (m) { return '<' + m + '>'; }).join(' ') : '无';
       seal.replyToSender(ctx, msg, npcName + ' 状态标记：' + mkStr2);
       return seal.ext.newCmdExecuteResult(true);
     }
