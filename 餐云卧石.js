@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         餐云卧石
-// @author       Asa阿沙
-// @version      1.0.7
+// @author       Asa阿沙、测试感谢：翳
+// @version      1.0.8
 // @description  《餐云卧石》BRP修仙规则插件——制卡投掷、技能检定、战斗伤害、灵气管理、法术施放
-// @timestamp    1779196104
+// @timestamp    1779311603
 // @diceRequireVer 1.4.0
 // @license      MIT
 // @homepageURL  https://github.com/hezhaoming095-gif/CanYunWoShi-Trpg-SealCore-JS-Extend
@@ -17,9 +17,9 @@
 var template = {
   name: "cyws",
   fullName: "餐云卧石",
-  authors: ["Asa阿沙 "],
-  version: "1.0.3",
-  updatedTime: "20260516",
+  authors: ["Asa阿沙、测试感谢：翳 "],
+  version: "1.1.3",
+  updatedTime: "20260520",
   templateVer: "1.0",
 
   setConfig: {
@@ -31,7 +31,7 @@ var template = {
 
   nameTemplate: {
     cyws: {
-      template: "{$t玩家_RAW} {灵根}/{职业}|{境界} HP:{HP}/{最大HP} POW:{意志}",
+      template: "{$t玩家_RAW} {灵根}/{职业}|{境界} HP:{HP}/{最大HP}",
       helpText: "餐云卧石名片"
     }
   },
@@ -721,11 +721,13 @@ if (!seal.ext.find('cyws')) {
         var key = defaultsKeys[di];
         if (token.startsWith(key) && token.length > key.length) {
           var rest = token.substring(key.length);
-          // 增量格式：灵气+30
-          if (rest.startsWith('+')) {
-            var incVal = parseInt(rest.substring(1), 10);
-            if (!isNaN(incVal) && String(incVal) === rest.substring(1)) {
-              result.increments[resolveAttrName(key)] = incVal;
+          // 增量格式：灵气+30 / HP-5
+          if (rest.startsWith('+') || rest.startsWith('-')) {
+            var incSign = rest.charAt(0);
+            var incNumStr = rest.substring(1);
+            var incVal = parseInt(incNumStr, 10);
+            if (!isNaN(incVal) && String(incVal) === incNumStr) {
+              result.increments[resolveAttrName(key)] = incSign === '+' ? incVal : -incVal;
               matched = true; break;
             }
           }
@@ -744,11 +746,13 @@ if (!seal.ext.find('cyws')) {
         var entry = aliasEntries[ai];
         if (token.toLowerCase().startsWith(entry.alias.toLowerCase()) && token.length > entry.alias.length) {
           var arest = token.substring(entry.alias.length);
-          // 增量格式：qi+30
-          if (arest.startsWith('+')) {
-            var aincVal = parseInt(arest.substring(1), 10);
-            if (!isNaN(aincVal) && String(aincVal) === arest.substring(1)) {
-              result.increments[entry.canonical] = aincVal;
+          // 增量格式：qi+30 / hp-5
+          if (arest.startsWith('+') || arest.startsWith('-')) {
+            var aincSign = arest.charAt(0);
+            var aincNumStr = arest.substring(1);
+            var aincVal = parseInt(aincNumStr, 10);
+            if (!isNaN(aincVal) && String(aincVal) === aincNumStr) {
+              result.increments[entry.canonical] = aincSign === '+' ? aincVal : -aincVal;
               matched = true; break;
             }
           }
@@ -774,51 +778,53 @@ if (!seal.ext.find('cyws')) {
       }
 
       // 冒号属性名紧凑格式（战斗:器60、知识:草药学5 等，冒号是属性名的一部分）
-      var colonMatch = token.match(/^(.+[:：].+?)[+]?(\d+)$/);
+      var colonMatch = token.match(/^(.+[:：].+?)([+-]?)(\d+)$/);
       if (colonMatch) {
         var cname = colonMatch[1].replace(/：/g, ':');
-        var cval = parseInt(colonMatch[2], 10);
-        var cIsInc = token.charAt(colonMatch[1].length) === '+';
+        var cval = parseInt(colonMatch[3], 10);
+        var cSign = colonMatch[2];
         if (!spiritRoots.has(cname) && !races.has(cname) && !realms.has(cname)) {
-          if (cIsInc) { result.increments[resolveAttrName(cname)] = cval; }
+          if (cSign === '+' || cSign === '-') { result.increments[resolveAttrName(cname)] = cSign === '+' ? cval : -cval; }
           else { result.attrs[resolveAttrName(cname)] = cval; }
           idx++; continue;
         }
       }
 
-      // 空格分离 name value 格式（支持 name +value 增量）
+      // 空格分离 name value 格式（支持 name +value/-value 增减量）
       if (defaultsKeys.indexOf(token) >= 0 && idx + 1 < tokens.length) {
         var nextRaw = tokens[idx + 1];
-        var nextIsInc = nextRaw.startsWith('+');
+        var nextIsInc = nextRaw.startsWith('+') || nextRaw.startsWith('-');
+        var nextSign = nextIsInc ? nextRaw.charAt(0) : '';
         var nextVal = parseInt(nextIsInc ? nextRaw.substring(1) : nextRaw, 10);
         if (!isNaN(nextVal) && !spiritRoots.has(nextRaw) && !races.has(nextRaw) && !realms.has(nextRaw)) {
-          if (nextIsInc) { result.increments[resolveAttrName(token)] = nextVal; }
+          if (nextSign === '+' || nextSign === '-') { result.increments[resolveAttrName(token)] = nextSign === '+' ? nextVal : -nextVal; }
           else { result.attrs[resolveAttrName(token)] = nextVal; }
           idx += 2; continue;
         }
       }
 
-      // alias空格格式（支持 +value 增量）
+      // alias空格格式（支持 +value/-value 增减量）
       var aliasLookup = ALIAS_TO_CANONICAL[token.toLowerCase()] || ALIAS_TO_CANONICAL[token];
       if (aliasLookup && idx + 1 < tokens.length) {
         var anextRaw = tokens[idx + 1];
-        var anextIsInc = anextRaw.startsWith('+');
+        var anextIsInc = anextRaw.startsWith('+') || anextRaw.startsWith('-');
+        var anextSign = anextIsInc ? anextRaw.charAt(0) : '';
         var anextVal = parseInt(anextIsInc ? anextRaw.substring(1) : anextRaw, 10);
         if (!isNaN(anextVal)) {
-          if (anextIsInc) { result.increments[aliasLookup] = anextVal; }
+          if (anextSign === '+' || anextSign === '-') { result.increments[aliasLookup] = anextSign === '+' ? anextVal : -anextVal; }
           else { result.attrs[aliasLookup] = anextVal; }
           idx += 2; continue;
         }
       }
 
-      // 兜底正则（支持 +增量）
-      var simpleMatch = token.match(/^([^\d\s+]+?)[+]?(\d+)$/);
+      // 兜底正则（支持 +/-增量）
+      var simpleMatch = token.match(/^([^\d\s+-]+?)([+-]?)(\d+)$/);
       if (simpleMatch) {
         var sname = simpleMatch[1];
-        var sval = parseInt(simpleMatch[2], 10);
-        var sIsInc = token.charAt(sname.length) === '+';
+        var sval = parseInt(simpleMatch[3], 10);
+        var sSign = simpleMatch[2];
         if (!spiritRoots.has(sname) && !races.has(sname) && !realms.has(sname)) {
-          if (sIsInc) { result.increments[resolveAttrName(sname)] = sval; }
+          if (sSign === '+' || sSign === '-') { result.increments[resolveAttrName(sname)] = sSign === '+' ? sval : -sval; }
           else { result.attrs[resolveAttrName(sname)] = sval; }
           // 非预设属性提示
           var sResolved = resolveAttrName(sname);
@@ -1014,9 +1020,17 @@ if (!seal.ext.find('cyws')) {
         changes.push(sakey + ' = ' + parsed.attrs[sakey]);
       }
 
-      // 重算衍生值
-      calcDerivedFromCard(ctx);
-      writeDerived(ctx, calcDerivedFromCard(ctx));
+      // 重算衍生值，但跳过用户手动修改的HP/PP/最大HP/最大PP（运行时值不应被覆盖）
+      var derivedResult = calcDerivedFromCard(ctx);
+      var skipKeys = {};
+      for (var sk1 in parsed.attrs) { if (parsed.attrs.hasOwnProperty(sk1)) skipKeys[sk1] = true; }
+      for (var sk2 in parsed.increments) { if (parsed.increments.hasOwnProperty(sk2)) skipKeys[sk2] = true; }
+      for (var dk in derivedResult) {
+        if (!derivedResult.hasOwnProperty(dk)) continue;
+        if (skipKeys[dk]) continue;
+        if (dk === 'DB' || dk === 'ADB') { setStr(ctx, dk, String(derivedResult[dk])); }
+        else { setInt(ctx, dk, Number(derivedResult[dk])); }
+      }
       // defaultsComputed
       var sr1 = seal.vars.intGet(ctx, '闪避');
       if (!sr1[1]) setInt(ctx, '闪避', Math.floor(getInt(ctx, '敏捷', 0) / 5));
@@ -1197,7 +1211,6 @@ if (!seal.ext.find('cyws')) {
   cmdRa.solve = function (ctx, msg, cmdArgs) {
     if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var mctx = seal.getCtxProxyFirst(ctx, cmdArgs);
-    mctx.delegateText = ctx.delegateText || '';
     var arg1 = cmdArgs.getArgN(1);
     if (!arg1) {
       seal.replyToSender(ctx, msg, '用法: .ra <技能名> [数值/+加值/-减值]\n例：.ra 闪避  .ra侦查40  .ra 闪避+10');
@@ -1281,7 +1294,7 @@ if (!seal.ext.find('cyws')) {
       }
     }
 
-    seal.replyToSender(ctx, msg, mctx.delegateText + output);
+    seal.replyToSender(ctx, msg, output);
     return seal.ext.newCmdExecuteResult(true);
   };
   ext.cmdMap['ra'] = cmdRa;
@@ -1294,7 +1307,6 @@ if (!seal.ext.find('cyws')) {
   cmdRc.solve = function (ctx, msg, cmdArgs) {
     if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var mctx = seal.getCtxProxyFirst(ctx, cmdArgs);
-    mctx.delegateText = ctx.delegateText || '';
     var arg1 = cmdArgs.getArgN(1);
     if (!arg1) {
       seal.replyToSender(ctx, msg, '用法: .rc <属性名> [数值/+加值/-减值]\n例：.rc 力量  .rc力量80  .rc 力量+10');
@@ -1335,7 +1347,7 @@ if (!seal.ext.find('cyws')) {
     }
     var output = '🎲 属性检定：' + (attrName || '纯数值') + ' (' + valStr + ')\n';
     output += '🎲 1D100 = ' + rollResult + ' → ' + (levelEmoji[judge.level] || '') + ' ' + judge.level;
-    seal.replyToSender(ctx, msg, mctx.delegateText + output);
+    seal.replyToSender(ctx, msg, output);
     return seal.ext.newCmdExecuteResult(true);
   };
   ext.cmdMap['rc'] = cmdRc;
@@ -1524,7 +1536,6 @@ if (!seal.ext.find('cyws')) {
   cmdAttack.allowDelegate = true;
   cmdAttack.solve = function (ctx, msg, cmdArgs) {
     var mctx = seal.getCtxProxyFirst(ctx, cmdArgs);
-    mctx.delegateText = ctx.delegateText || '';
     var arg1 = cmdArgs.getArgN(1) || '';
     var arg2 = cmdArgs.getArgN(2) || '';
 
@@ -1535,7 +1546,7 @@ if (!seal.ext.find('cyws')) {
       var skillValue60 = parsed60.baseValue;
       var rollResult60 = roll(mctx, '1d100');
       var judge60 = judgeSuccess(rollResult60, skillValue60);
-      var output60 = mctx.delegateText + '⚔️ 攻击检定\n━━━━━━━━━━━━━━━\n';
+      var output60 = '⚔️ 攻击检定\n━━━━━━━━━━━━━━━\n';
       output60 += '角色：' + mctx.player.name + ' | 技能：' + resolvedSkill60 + ' (' + skillValue60 + '%) [手动]\n';
       output60 += '🎲 1D100 = ' + rollResult60 + ' → ' + judge60.level + '\n';
       return handleAttackDamage(mctx, ctx, msg, output60, resolvedSkill60, skillValue60, judge60);
@@ -1578,9 +1589,19 @@ if (!seal.ext.find('cyws')) {
         + (bonus !== 0 ? (bonus > 0 ? '+' + bonus : '' + bonus) + ' [临时]' : '')
         + (yaoDanSkillBonus > 0 ? '+' + yaoDanSkillBonus + ' [妖丹]' : '');
     }
-    var output = mctx.delegateText + '⚔️ 攻击检定\n━━━━━━━━━━━━━━━\n';
+    var output = '⚔️ 攻击检定\n━━━━━━━━━━━━━━━\n';
     output += '角色：' + mctx.player.name + ' | 技能：' + resolvedSkill + ' (' + valStr + ')\n';
     output += '🎲 1D100 = ' + rollResult + ' → ' + judge.level + '\n';
+
+    // 成长标记：log on 且非手动指定值（写入被代骰者的 mctx）
+    var isAtkLogOn = mctx.group && mctx.group.logOn;
+    if (judge.canGrow && !isManual && isAtkLogOn) {
+      output += '[成长标记 ✓]\n';
+      var atkMeta = getMeta(mctx);
+      if (!atkMeta.growthMarks) atkMeta.growthMarks = {};
+      atkMeta.growthMarks[resolvedSkill] = judge.level;
+      setMeta(mctx, atkMeta);
+    }
 
     return handleAttackDamage(mctx, ctx, msg, output, resolvedSkill, skillValue, judge);
   };
