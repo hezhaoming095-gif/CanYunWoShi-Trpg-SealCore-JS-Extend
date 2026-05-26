@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         餐云卧石
 // @author       Asa阿沙、测试感谢：翳
-// @version      1.0.8
+// @version      1.1.0
 // @description  《餐云卧石》BRP修仙规则插件——制卡投掷、技能检定、战斗伤害、灵气管理、法术施放
-// @timestamp    1779311603
+// @timestamp    1779801146
 // @diceRequireVer 1.4.0
 // @license      MIT
 // @homepageURL  https://github.com/hezhaoming095-gif/CanYunWoShi-Trpg-SealCore-JS-Extend
@@ -90,7 +90,7 @@ var template = {
     "力量": ["STR", "str"], "体质": ["CON", "con"], "体型": ["SIZ", "siz"],
     "智力": ["INT", "int"], "意志": ["POW", "pow"], "敏捷": ["DEX", "dex"],
     "外貌": ["APP", "app"], "气运": ["Luck", "luck"], "灵气": ["Qi", "qi"],
-    "HP": ["hp", "体力"], "PP": ["pp"], "DB": ["db"], "ADB": ["adb"],
+    "HP": ["hp", "体力"], "PP": ["pp"], "DB": ["db"], "ADB": ["adb", "da"],
     "护甲": ["Armor", "armor"], "移动力": ["MOV", "mov"],
     "灵根": ["SpiritRoot", "root"], "种族": ["Race", "race"],
     "境界": ["Realm", "realm"], "职业": ["Profession", "prof"],
@@ -116,9 +116,8 @@ try {
 
 if (!seal.ext.find('cyws')) {
   var ext = seal.ext.new('cyws', 'Asa阿沙', '1.0.3');
-  // ★ 必须显式设置autoActive=true：Go的bool默认值为false，
-  // 不设置则扩展不会自动激活，.set cyws的relatedExt机制也无效
-  ext.autoActive = true;
+  // 仅在 .set cyws 通过模板 relatedExt 激活，避免污染其他房规命令。
+  ext.autoActive = false;
   seal.ext.register(ext);
   ext.storageInit();
 
@@ -298,13 +297,25 @@ if (!seal.ext.find('cyws')) {
   }
   function getStr(ctx, name, fallback) {
     var r = seal.vars.strGet(ctx, name);
-    return r[1] ? r[0] : (fallback || '');
+    if (r[1]) return r[0];
+    try {
+      var c = seal.vars.computedGet(ctx, name);
+      if (c[1]) return c[0];
+    } catch (e) { }
+    try {
+      var i = seal.vars.intGet(ctx, name);
+      if (i[1]) return String(i[0]);
+    } catch (e) { }
+    return fallback || '';
   }
   function setInt(ctx, name, val) {
     seal.vars.intSet(ctx, name, Number(val));
   }
   function setStr(ctx, name, val) {
     seal.vars.strSet(ctx, name, String(val));
+  }
+  function setComputed(ctx, name, val) {
+    seal.vars.computedSet(ctx, name, String(val));
   }
   function modInt(ctx, name, delta) {
     var cur = getInt(ctx, name, 0);
@@ -393,6 +404,27 @@ if (!seal.ext.find('cyws')) {
       }
     }
     return { total: total, detail: detailParts.join('+') || expr };
+  }
+
+  function parseSingleResourceCost(costText, costType) {
+    var raw = String(costText || '').trim();
+    if (!raw || raw === '按设定' || raw.indexOf('/') >= 0 || raw.indexOf('+') >= 0) {
+      return { ok: false, reason: '复杂或未设定的消耗需手动处理：' + (raw || '按设定') };
+    }
+    if (/^\d+$/.test(raw)) {
+      return { ok: true, amount: parseInt(raw, 10), resource: costType === '灵' ? '灵气' : 'PP' };
+    }
+    var ppMatch = raw.match(/^(\d+)\s*(PP|pp|Pp|pP)$/);
+    if (ppMatch) {
+      if (costType !== 'pp') return { ok: false, reason: '该法术消耗为PP，不能选择灵气支付' };
+      return { ok: true, amount: parseInt(ppMatch[1], 10), resource: 'PP' };
+    }
+    var qiMatch = raw.match(/^(\d+)\s*(灵|灵气)$/);
+    if (qiMatch) {
+      if (costType !== '灵') return { ok: false, reason: '该法术消耗为灵气，不能选择PP支付' };
+      return { ok: true, amount: parseInt(qiMatch[1], 10), resource: '灵气' };
+    }
+    return { ok: false, reason: '无法自动解析消耗：' + raw + '，请手动处理' };
   }
 
   // 存储辅助
@@ -555,7 +587,7 @@ if (!seal.ext.find('cyws')) {
       if (!derived.hasOwnProperty(key)) continue;
       var val = derived[key];
       if (key === 'DB' || key === 'ADB') {
-        setStr(ctx, key, String(val));
+        setComputed(ctx, key, String(val));
       } else {
         setInt(ctx, key, Number(val));
       }
@@ -1028,7 +1060,7 @@ if (!seal.ext.find('cyws')) {
       for (var dk in derivedResult) {
         if (!derivedResult.hasOwnProperty(dk)) continue;
         if (skipKeys[dk]) continue;
-        if (dk === 'DB' || dk === 'ADB') { setStr(ctx, dk, String(derivedResult[dk])); }
+        if (dk === 'DB' || dk === 'ADB') { setComputed(ctx, dk, String(derivedResult[dk])); }
         else { setInt(ctx, dk, Number(derivedResult[dk])); }
       }
       // defaultsComputed
@@ -1328,7 +1360,17 @@ if (!seal.ext.find('cyws')) {
     if (baseValue !== null) {
       attrValue = baseValue + bonus;
     } else if (attrName) {
-      attrValue = getInt(mctx, attrName, 0) + bonus + yaoDanAttrBonus;
+      var attrRead = seal.vars.intGet(mctx, attrName);
+      var isKnownAttr = template.defaults && template.defaults.hasOwnProperty(attrName);
+      if (!attrRead[1] && !isKnownAttr) {
+        seal.replyToSender(ctx, msg, '⚠️ 未找到属性: ' + attrName + '\n可手动指定数值: .rc ' + attrName + ' <数值>');
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      if (!attrRead[1] && isKnownAttr) {
+        seal.replyToSender(ctx, msg, '⚠️ 属性 ' + attrName + ' 尚未录入，请先 .st 录入或手动指定数值: .rc ' + attrName + ' <数值>');
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      attrValue = attrRead[0] + bonus + yaoDanAttrBonus;
     } else {
       attrValue = baseValue;
     }
@@ -1373,6 +1415,7 @@ if (!seal.ext.find('cyws')) {
       seal.replyToSender(ctx, msg, helpContent);
       return seal.ext.newCmdExecuteResult(true);
     }
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var count = Math.min(Math.max(Number(subCmd) || 1, 1), 10);
     var output = '🎲 餐云卧石属性投掷 (×' + count + ')\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
     for (var i = 0; i < count; i++) {
@@ -1407,6 +1450,7 @@ if (!seal.ext.find('cyws')) {
   cmdInput.name = '录入';
   cmdInput.help = '📝 .录入 <灵根> <种族> <境界> <职业> — 元数据录入\n\n单独修改灵根/种族/境界/职业，不需重新录入全部属性。\n修改后自动重算衍生值。\n\n例：.录入 金 人族 筑基 兵修\n例：.录入 筑基（只改境界）';
   cmdInput.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var text = cmdArgs.getRestArgsFrom(1);
     if (!text) {
       seal.replyToSender(ctx, msg, '用法: .录入 <灵根> <种族> <境界> <职业>\n示例: .录入 金 人族 炼气 蛊师');
@@ -1444,6 +1488,7 @@ if (!seal.ext.find('cyws')) {
   cmdRecalc.name = '重算';
   cmdRecalc.help = '🔄 .重算 — 重新计算所有衍生属性\n\n根据当前力量/体质/体型/敏捷/意志/灵气/种族/境界，重算HP/PP/DB/ADB/职业点/兴趣点/法术点。\n修改基础属性后使用此命令。';
   cmdRecalc.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var derived = calcDerivedFromCard(ctx);
     writeDerived(ctx, derived);
     var output = '✓ 衍生属性已重算\n';
@@ -1490,9 +1535,6 @@ if (!seal.ext.find('cyws')) {
     var dbDmg = 0, dbDetail = '';
     if (dbStr === '0') {
       dbDmg = 0; dbDetail = '0';
-    } else if (isMaximized) {
-      var maxDB = maximizeDiceExpr(dbStr);
-      dbDmg = maxDB.total; dbDetail = 'MAX ' + maxDB.detail;
     } else {
       var dbResult = rollDetailed(mctx, dbStr);
       dbDmg = dbResult.total; dbDetail = dbResult.detail;
@@ -1535,6 +1577,7 @@ if (!seal.ext.find('cyws')) {
   cmdAttack.help = '⚔️ .攻击 [技能名] — 攻击检定+伤害计算\n\n先做技能检定(1D100)，命中后自动计算伤害：\n· 武器伤害骰（从.st录入的武器读取）\n· + DB（力量+体型查表）\n· + ADB（仅灵气>HP时附加）\n\n大成功：武器伤害骰取最大值（DB/ADB不翻倍）\n大失败：提示由KP裁定意外效果\n\n默认技能：战斗:器\n支持代骰：.攻击 @A玩家\n支持格式：\n· .攻击              默认技能\n· .攻击 战斗:体      指定技能\n· .攻击 战斗:器 60   手动指定技能值\n· .攻击 60           默认技能+手动值\n· .攻击战斗:器+10    紧凑格式+临时加值\n\n例：.攻击  .攻击 战斗:体  .攻击 60';
   cmdAttack.allowDelegate = true;
   cmdAttack.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var mctx = seal.getCtxProxyFirst(ctx, cmdArgs);
     var arg1 = cmdArgs.getArgN(1) || '';
     var arg2 = cmdArgs.getArgN(2) || '';
@@ -1610,31 +1653,31 @@ if (!seal.ext.find('cyws')) {
   // 5.8 .受伤 命令
   var cmdHurt = seal.ext.newCmdItemInfo();
   cmdHurt.name = '受伤';
-  cmdHurt.help = '💔 .受伤 <数值> — 扣减HP\n\n自动减去护甲值（音灵根攻击时无视护甲）。\n鬼修HP始终为0，提示扣减灵气代替。\n\nHP≤0：提示昏迷(1D6轮)\nHP≤-体质：提示角色死亡\n\n例：.受伤 12';
+  cmdHurt.help = '💔 .受伤 <数值> [无视/无视护甲/ignore] — 扣减HP\n\n默认自动减去护甲值；攻击者具备无视护甲效果时，可手动追加“无视”。\n鬼修HP始终为0，提示扣减灵气代替。\n\nHP≤0：提示昏迷(1D6轮)\nHP≤-体质：提示角色死亡\n\n例：.受伤 12\n例：.受伤 12 无视护甲';
   cmdHurt.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var dmg = Number(cmdArgs.getArgN(1));
-    if (!dmg) {
-      seal.replyToSender(ctx, msg, '用法: .受伤 <数值>');
+    if (isNaN(dmg) || dmg <= 0) {
+      seal.replyToSender(ctx, msg, '用法: .受伤 <数值> [无视/无视护甲/ignore]');
       return seal.ext.newCmdExecuteResult(true);
     }
     var armor = getInt(ctx, '护甲', 0);
     var race = getStr(ctx, '种族', '人族');
-    var spiritRoot = getStr(ctx, '灵根', '无');
+    var ignoreArg = cmdArgs.getArgN(2);
 
     if (race === '鬼修') {
       seal.replyToSender(ctx, msg, '⚠️ 鬼修HP始终为0，请手动扣减灵气代替：.灵气 -' + dmg);
       return seal.ext.newCmdExecuteResult(true);
     }
 
-    var rootInfo = SPIRIT_ROOTS[spiritRoot];
-    var ignoreArmor = rootInfo && rootInfo.isVariant && rootInfo.parent === '金';
+    var ignoreArmor = ignoreArg === '无视' || ignoreArg === '无视护甲' || String(ignoreArg || '').toLowerCase() === 'ignore';
     var actualArmor = ignoreArmor ? 0 : armor;
     var actualDmg = Math.max(dmg - actualArmor, 0);
 
     var output = '💔 受伤处理\n━━━━━━━━━━━━━━━\n';
     output += '角色：' + ctx.player.name + '\n原始伤害：' + dmg + '\n';
     if (ignoreArmor) {
-      output += '护甲：0（音灵根无视护甲）\n';
+      output += '护甲：0（手动指定无视护甲）\n';
     } else if (armor > 0) {
       output += '护甲值：' + armor + '\n';
     }
@@ -1794,6 +1837,7 @@ if (!seal.ext.find('cyws')) {
   cmdCast.name = '施法';
   cmdCast.help = '🔮 .施法 <法术名> [pp/灵] — 施放法术\n\n第一步：.施法 <法术名> 查看法术信息和消耗选项\n第二步：选择消耗方式\n  pp — 消耗PP施放\n  灵 — 消耗灵气施放\n\n长时法术战斗中无法使用。\n\n例：.施法 摧枯拉朽 → .施法 摧枯拉朽 pp\n例：.施法 兵戈 → .施法 兵戈 灵';
   cmdCast.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var spellName = cmdArgs.getArgN(1);
     var costType = cmdArgs.getArgN(2);
     if (!spellName) {
@@ -1806,10 +1850,9 @@ if (!seal.ext.find('cyws')) {
     for (var i = 0; i < spellData.list.length; i++) {
       if (spellData.list[i].name === spellName) { spell = spellData.list[i]; break; }
     }
-    if (!spell && PRESET_SPELLS[spellName]) spell = PRESET_SPELLS[spellName];
 
     if (!spell) {
-      seal.replyToSender(ctx, msg, '⚠️ 未找到法术: ' + spellName);
+      seal.replyToSender(ctx, msg, '⚠️ 未学会法术: ' + spellName + '\n请先使用 .法术学习 或 .法术创建');
       return seal.ext.newCmdExecuteResult(true);
     }
 
@@ -1831,22 +1874,39 @@ if (!seal.ext.find('cyws')) {
       return seal.ext.newCmdExecuteResult(true);
     }
 
-    if (costType === 'pp') {
-      var ppCost = parseInt(spell.cost) || 1;
-      var newPP = modInt(ctx, 'PP', -ppCost);
+    if (costType !== 'pp' && costType !== '灵') {
+      seal.replyToSender(ctx, msg, '⚠️ 未知消耗方式: ' + costType + '，请使用 pp 或 灵');
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    var parsedCost = parseSingleResourceCost(spell.cost, costType);
+    if (!parsedCost.ok) {
+      seal.replyToSender(ctx, msg, '⚠️ ' + parsedCost.reason + '\n请手动扣除资源后记录施法效果。');
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    if (parsedCost.resource === 'PP') {
+      var curPP = getInt(ctx, 'PP', 0);
+      if (curPP < parsedCost.amount) {
+        seal.replyToSender(ctx, msg, '⚠️ PP不足：当前' + curPP + '，需要' + parsedCost.amount);
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      var newPP = modInt(ctx, 'PP', -parsedCost.amount);
       var output2 = '🔮 法术施放：' + spellName + '\n';
-      output2 += '消耗：' + ppCost + 'PP → PP:' + newPP + '\n';
+      output2 += '消耗：' + parsedCost.amount + 'PP → PP:' + newPP + '\n';
       output2 += '效果：' + (spell.desc || '无');
       seal.replyToSender(ctx, msg, output2);
-    } else if (costType === '灵') {
-      var qiCost = parseInt(spell.cost) || 5;
-      var newQi = modInt(ctx, '灵气', -qiCost);
+    } else {
+      var curQi = getInt(ctx, '灵气', 0);
+      if (curQi < parsedCost.amount) {
+        seal.replyToSender(ctx, msg, '⚠️ 灵气不足：当前' + curQi + '，需要' + parsedCost.amount);
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      var newQi = modInt(ctx, '灵气', -parsedCost.amount);
       var output3 = '🔮 法术施放：' + spellName + '\n';
-      output3 += '消耗：' + qiCost + '灵气 → 灵气:' + newQi + '\n';
+      output3 += '消耗：' + parsedCost.amount + '灵气 → 灵气:' + newQi + '\n';
       output3 += '效果：' + (spell.desc || '无');
       seal.replyToSender(ctx, msg, output3);
-    } else {
-      seal.replyToSender(ctx, msg, '⚠️ 未知消耗方式: ' + costType + '，请使用 pp 或 灵');
     }
     return seal.ext.newCmdExecuteResult(true);
   };
@@ -1857,6 +1917,7 @@ if (!seal.ext.find('cyws')) {
   cmdMartial.name = '功法';
   cmdMartial.help = '🥋 .功法 <模式> <技能名> — 功法检定\n\n三种模式：\n· 攻击 — 功法成功时武器数值骰翻倍（DB/ADB不翻倍）\n· 防御 — 功法成功时抵消15点伤害\n· 干扰 — 功法成功时附带攻击效果（不含DB/ADB）\n\n先做技能检定，成功后再做功法检定(功法值%)。\n\n例：.功法 攻击 战斗:器\n例：.功法 防御 闪避\n例：.功法 干扰 灵力控制';
   cmdMartial.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var mode = cmdArgs.getArgN(1);
     var skillName = cmdArgs.getArgN(2);
     if (['攻击', '防御', '干扰'].indexOf(mode) < 0 || !skillName) {
@@ -1906,6 +1967,7 @@ if (!seal.ext.find('cyws')) {
   cmdBattle.name = '战斗';
   cmdBattle.help = '⚔️ .战斗 on/off — 战斗状态管理\n\n.战斗 on  — 开启战斗，显示DEX供KP排列行动顺序\n.战斗 off — 结束战斗';
   cmdBattle.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var action = cmdArgs.getArgN(1);
     if (action === 'on') {
       var meta = getMeta(ctx);
@@ -1936,6 +1998,7 @@ if (!seal.ext.find('cyws')) {
   cmdStatus.name = '状态';
   cmdStatus.help = '📊 .状态 — 查看角色状态\n\n显示：灵根/职业/境界 + HP/PP血条 + 灵气 + DB/ADB/护甲 + 状态标记';
   cmdStatus.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var hp = getInt(ctx, 'HP', 0);
     var maxHp = getInt(ctx, '最大HP', 0);
     var pp = getInt(ctx, 'PP', 0);
@@ -1980,6 +2043,7 @@ if (!seal.ext.find('cyws')) {
   cmdQi.name = '灵气';
   cmdQi.help = '💨 .灵气 <+/-数值> — 灵气增减\n\n灵气影响：ADB附加（灵气>HP时才能加ADB）、PP上限(PP=灵气/5)。\n灵气低于HP：攻击不再附加ADB\n灵气归零：需意志检定判断是否昏迷\n\n例：.灵气 -5  .灵气 +10';
   cmdQi.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var val = cmdArgs.getArgN(1);
     if (!val) {
       seal.replyToSender(ctx, msg, '用法: .灵气 <+/-数值>');
@@ -2005,8 +2069,13 @@ if (!seal.ext.find('cyws')) {
   cmdHp.name = 'hp';
   cmdHp.help = '💓 .hp <+/-数值> — HP增减\n\nHP≤0：昏迷(1D6轮)\nHP≤-体质：角色死亡\n\n例：.hp -12  .hp +5';
   cmdHp.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var val = cmdArgs.getArgN(1) || '0';
     var num = Number(val);
+    if (isNaN(num)) {
+      seal.replyToSender(ctx, msg, '⚠️ 请输入数值');
+      return seal.ext.newCmdExecuteResult(true);
+    }
     var newHp = modInt(ctx, 'HP', num);
     var con = getInt(ctx, '体质', 0);
     var output = 'HP：' + newHp;
@@ -2022,6 +2091,7 @@ if (!seal.ext.find('cyws')) {
   cmdMarker.name = '标记';
   cmdMarker.help = '🏷️ .标记 <+名称/-名称> — 状态标记管理\n\n添加或移除状态标记（中毒、流血、眩晕等）。\n操作后显示当前全部标记。\n\n例：.标记 +中毒  .标记 -中毒';
   cmdMarker.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var action = cmdArgs.getArgN(1);
     if (!action) {
       seal.replyToSender(ctx, msg, '用法: .标记 <+名称> 或 .标记 -名称');
@@ -2045,6 +2115,7 @@ if (!seal.ext.find('cyws')) {
   cmdGrowthMark.name = '成长标记';
   cmdGrowthMark.help = '📈 .成长标记 — 查看可成长技能\n.成长标记 清空 — 清空所有成长标记\n\n特殊成功和大成功会自动获得成长标记，标记后可用.成长检定提升技能。';
   cmdGrowthMark.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var subCmd = cmdArgs.getArgN(1);
     var meta = getMeta(ctx);
     if (subCmd === '清空') {
@@ -2073,6 +2144,7 @@ if (!seal.ext.find('cyws')) {
   cmdGrow.name = '成长';
   cmdGrow.help = '📈 .成长 <技能名> — 成长检定\n\n掷1D100，出目>技能值则成长成功，技能+1D10。\n仅标记了成长标记的技能建议进行成长检定。\n\n成长与跑团日志联动：.log on 时检定自动标记成长，.log off 时需用 .成长 ra\n\n用法：\n· .成长 <技能名>       单项成长检定\n· .成长 ra <技能名>    检定+强制成长标记（log off时使用）\n· .成长 all            批量成长所有已标记技能\n· .成长 技能1 技能2    批量成长指定技能\n\n例：.成长 闪避  .成长 战斗:器  .成长 ra 侦查  .成长 all';
   cmdGrow.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var text = (cmdArgs.getRestArgsFrom(1) || '').trim();
     if (!text) {
       seal.replyToSender(ctx, msg, '用法: .成长 <技能名> | .成长 ra <技能> | .成长 all | .成长 技能1 技能2');
@@ -2218,6 +2290,7 @@ if (!seal.ext.find('cyws')) {
   cmdWeaponDel.name = '武器删除';
   cmdWeaponDel.help = '⚔️ .武器删除 <武器名> — 删除角色武器\n\n从角色卡中移除指定武器。\n\n例：.武器删除 本命剑\n别名：.武器移除';
   cmdWeaponDel.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var wName = cmdArgs.getArgN(1);
     if (!wName) {
       seal.replyToSender(ctx, msg, '用法: .武器删除 <武器名>\n使用 .st 查看 当前武器列表');
@@ -2247,6 +2320,7 @@ if (!seal.ext.find('cyws')) {
   cmdLearnSpell.name = '法术学习';
   cmdLearnSpell.help = '📜 .法术学习 <法术名> [品阶] — 学习法术\n\n学习预置法术或22种职业法术。\n职业法术品阶需指定：天(7点)/地(5点)/玄(3点)/黄(1点)\n被动法术不占用法术点。\n\n例：.法术学习 摧枯拉朽\n例：.法术学习 兵戈 黄\n例：.法术学习 蛊术 玄';
   cmdLearnSpell.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var spellName = cmdArgs.getArgN(1);
     var grade = cmdArgs.getArgN(2);
     if (!spellName) {
@@ -2260,6 +2334,12 @@ if (!seal.ext.find('cyws')) {
 
     var preset = PRESET_SPELLS[spellName];
     var spellData = getSpells(ctx);
+    for (var si = 0; si < spellData.list.length; si++) {
+      if (spellData.list[si].name === spellName) {
+        seal.replyToSender(ctx, msg, '⚠️ 已学会此法术: ' + spellName);
+        return seal.ext.newCmdExecuteResult(true);
+      }
+    }
 
     var finalGrade = preset.grade;
     if (finalGrade === '自定义') {
@@ -2302,6 +2382,7 @@ if (!seal.ext.find('cyws')) {
   cmdSpellList.name = '法术列表';
   cmdSpellList.help = '📜 .法术列表 — 查看已学法术\n\n显示每个法术的品阶、消耗、施放时间，以及法术点使用情况。';
   cmdSpellList.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var spellData = getSpells(ctx);
     if (spellData.list.length === 0) {
       seal.replyToSender(ctx, msg, '尚未学习任何法术');
@@ -2324,6 +2405,7 @@ if (!seal.ext.find('cyws')) {
   cmdCreateSpell.name = '法术创建';
   cmdCreateSpell.help = '📜 .法术创建 <名称> <品阶> [消耗] [时间] [效果] — 创建自创法术\n\n品阶必填：天(7点)/地(5点)/玄(3点)/黄(1点)/不入流(0点)\n消耗可选：如 5PP / 10灵气 / 5PP/20灵气（默认"按设定"）\n时间可选：即时/短时/长时/被动（默认"即时"）\n效果可选：剩余文本作为效果描述（默认"自定义法术"）\n\n例：.法术创建 火球术 玄 5PP 即时 向目标投掷火球\n例：.法术创建 护盾 黄 3PP 短时 形成灵气护盾\n例：.法术创建 被动天赋 不入流 被动 某种被动效果';
   cmdCreateSpell.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var spellName = cmdArgs.getArgN(1);
     var grade = cmdArgs.getArgN(2);
     if (!spellName || !grade) {
@@ -2343,22 +2425,30 @@ if (!seal.ext.find('cyws')) {
       }
     }
 
-    var cost = cmdArgs.getArgN(3) || '按设定';
-    var time = cmdArgs.getArgN(4) || '即时';
     var validTimes = ['即时', '短时', '长时', '被动'];
-    // 如果第4个参数不是有效时间，可能是效果描述的一部分
-    if (validTimes.indexOf(time) < 0) {
-      time = '即时';
-      cost = cmdArgs.getArgN(3) || '按设定';
+    var arg3 = cmdArgs.getArgN(3);
+    var arg4 = cmdArgs.getArgN(4);
+    var cost = '按设定';
+    var time = '即时';
+    var descStart = 3;
+    if (arg3 && validTimes.indexOf(arg3) >= 0) {
+      time = arg3;
+      descStart = 4;
+    } else if (arg3) {
+      cost = arg3;
+      if (arg4) {
+        if (validTimes.indexOf(arg4) < 0) {
+          seal.replyToSender(ctx, msg, '⚠️ 无效施法时间: ' + arg4 + '\n可选：即时/短时/长时/被动');
+          return seal.ext.newCmdExecuteResult(true);
+        }
+        time = arg4;
+        descStart = 5;
+      } else {
+        descStart = 4;
+      }
     }
-    // 效果描述：取剩余文本
-    var restArgs = cmdArgs.getRestArgsFrom(1).split(/\s+/);
-    var descStart = 2; // 跳过名称和品阶
-    if (restArgs.length > 2 && restArgs[2] && restArgs[2] !== '按设定') descStart = 3; // 跳过消耗
-    if (time !== '即时' || restArgs.length > 3) {
-      if (restArgs.length > 3 && validTimes.indexOf(restArgs[3]) >= 0) descStart = 4; // 跳过时间
-    }
-    var desc = restArgs.slice(descStart).join(' ') || '自定义法术';
+    var desc = cmdArgs.getRestArgsFrom(descStart) || '自定义法术';
+    if (desc.trim() === '') desc = '自定义法术';
 
     var isPassive = time === '被动';
     var gradeCost = GRADE_COST[grade] || 0;
@@ -2392,6 +2482,7 @@ if (!seal.ext.find('cyws')) {
   cmdDeleteSpell.name = '法术删除';
   cmdDeleteSpell.help = '📜 .法术删除 <法术名> — 遗忘已学法术\n\n删除指定法术并退还法术点（被动法术不退还）。\n\n例：.法术删除 火球术\n别名：.法术遗忘';
   cmdDeleteSpell.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var spellName = cmdArgs.getArgN(1);
     if (!spellName) {
       seal.replyToSender(ctx, msg, '用法: .法术删除 <法术名>');
@@ -2435,6 +2526,7 @@ if (!seal.ext.find('cyws')) {
   cmdRecover.name = '回复';
   cmdRecover.help = '💨 .回复 [休息/行动/修炼] — 灵气回复规则查询\n\n· 休息：每半个时辰回复1点PP\n· 行动：每时辰回复2点PP\n· 修炼：不回复PP\n\n查询后需手动执行 .灵气 +<数值>';
   cmdRecover.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var mode = cmdArgs.getArgN(1);
     var pp = getInt(ctx, 'PP', 0);
     var maxPp = getInt(ctx, '最大PP', 0);
@@ -2453,6 +2545,7 @@ if (!seal.ext.find('cyws')) {
   cmdCreate.name = '制卡';
   cmdCreate.help = '🎲 .制卡 — 引导式制卡\n\n一次完成：投掷7项属性+气运+灵气 + 掷1D8个人特点+1D20额外经历。\n完成后请在Excel角色卡中选择灵根/种族/境界/职业/技能/法术，再用.st录入。';
   cmdCreate.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var output = '🎲 餐云卧石制卡\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
     var attrExprs = [['力量', '3d6*5'], ['体质', '3d6*5'], ['体型', '2d6*5+30'], ['智力', '2d6*5+30'], ['意志', '3d6*5'], ['敏捷', '3d6*5'], ['外貌', '3d6*5']];
     for (var i = 0; i < attrExprs.length; i++) {
@@ -2558,6 +2651,7 @@ if (!seal.ext.find('cyws')) {
   cmdNpc.name = 'npc';
   cmdNpc.help = '🎭 .npc — NPC管理（KP专用）\n\n创建和管理NPC，无需切换角色卡即可为NPC检定/攻击/受伤。\n\n创建/更新：.npc add <名称> <属性值...>\n  例：.npc add 小兵A 力量50 体质40 闪避30 HP10 最大HP10 护甲2\n  DB/ADB等用=号：.npc add BossA 力量80 体型70 HP20 DB=+1D6 ADB=2D4\n\n检定：.npc <名称> ra <技能> [数值]\n  例：.npc 小兵A ra 闪避\n  例：.npc 小兵A ra 闪避 30（手动指定技能值）\n\n攻击：.npc <名称> 攻击 [技能] [数值]\n  例：.npc 小兵A 攻击 战斗:体\n\n受伤：.npc <名称> 受伤 <数值>\n  例：.npc 小兵A 受伤 8\n\nHP：.npc <名称> hp <+/-数值>\n灵气：.npc <名称> 灵气 <+/-数值>\n武器添加：.npc <名称> 武器 <武器名> <公式>\n  例：.npc 小兵A 武器 大刀 1d8+1d4\n武器删除：.npc <名称> 武器 del <武器名>\n  例：.npc 小兵A 武器 del 大刀\n\n查看：.npc <名称> st\n标记：.npc <名称> 标记 <+名称/-名称>\n删除：.npc <名称> del\n列表：.npc list\n清空：.npc clear\n帮助：.npc help';
   cmdNpc.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var text = cmdArgs.getRestArgsFrom(1);
     if (!text || text.trim() === '') {
       seal.replyToSender(ctx, msg, cmdNpc.help);
