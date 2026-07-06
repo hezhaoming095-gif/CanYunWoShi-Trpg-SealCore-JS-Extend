@@ -874,6 +874,54 @@ if (!seal.ext.find('cyws')) {
     return result;
   }
 
+  function parseWeaponInput(text) {
+    var trimmed = (text || '').trim();
+    if (!trimmed) return null;
+
+    var colonMatch = trimmed.match(/^武器[：:](.+?)[：:](.+)$/);
+    if (colonMatch) {
+      return { name: colonMatch[1].trim(), formula: colonMatch[2].trim() };
+    }
+
+    var tokens = trimmed.split(/\s+/).filter(function (t) { return t.length > 0; });
+    if (tokens.length >= 3 && tokens[0] === '武器') {
+      return { name: tokens[1], formula: tokens.slice(2).join('') };
+    }
+
+    return null;
+  }
+
+  function setWeapon(ctx, weapon) {
+    var meta = getMeta(ctx);
+    meta.weapons = meta.weapons || {};
+    meta.weapons[weapon.name] = weapon.formula;
+    setMeta(ctx, meta);
+    return Object.keys(meta.weapons);
+  }
+
+  function formatWeaponSetOutput(weapon, weaponNames) {
+    var output = '✓ 武器已录入：' + weapon.name + '（' + weapon.formula + '）';
+    if (weaponNames && weaponNames.length > 1) {
+      output += '\n当前武器：' + weaponNames.join('、');
+    }
+    return output;
+  }
+
+  function formatWeaponListOutput(ctx) {
+    var meta = getMeta(ctx);
+    var weapons = meta.weapons || {};
+    var names = Object.keys(weapons);
+    if (names.length === 0) {
+      return '当前没有录入任何武器\n录入：.录入 武器 <名称> <伤害公式>\n例：.录入 武器 本命剑 1d8+1d4';
+    }
+
+    var output = '⚔️ 当前武器列表\n━━━━━━━━━━━━━━━';
+    for (var i = 0; i < names.length; i++) {
+      output += '\n' + (i + 1) + '. ' + names[i] + '（' + weapons[names[i]] + '）';
+    }
+    return output;
+  }
+
   // ──────────────────────────────
   // 命令实现
   // ──────────────────────────────
@@ -910,9 +958,11 @@ if (!seal.ext.find('cyws')) {
     + '  → 例：.st 力量60体质55体型65智力70意志60敏捷75外貌45 灵气70 金 人族 炼气 兵修 战斗:器60\n'
     + '  → 支持格式：紧凑(力量60)、英文(STR60)、冒号(战斗:器60/STR:60)\n'
     + '  → 增量修改：.st 灵气+30  .st HP-5\n'
-    + '  → 武器录入：.st 武器:本命剑:1d8+1d4\n'
+    + '  → 武器录入：.录入 武器 本命剑 1d8+1d4\n'
     + '.录入 <灵根> <种族> <境界> <职业>\n'
     + '  → 单独修改元数据，例：.录入 金 人族 筑基 兵修\n'
+    + '.录入 武器 <名称> <公式>\n'
+    + '  → 单独录入武器，例：.录入 武器 本命剑 1d8+1d4\n'
     + '.重算                  重新计算所有衍生属性';
 
   var HELP_RA = ''
@@ -940,6 +990,8 @@ if (!seal.ext.find('cyws')) {
     + '  → 自动读取武器伤害+DB+ADB\n'
     + '  → 大成功时武器伤害骰取最大值\n'
     + '  → 格式：.攻击 | .攻击 战斗:器 60 | .攻击闪避+10\n'
+    + '.录入 武器 <名称> <公式>  录入角色武器\n'
+    + '.武器 list / .武器list   查看当前武器列表\n'
     + '.武器删除 <武器名>     删除角色武器（别名：.武器移除）\n'
     + '.受伤 <数值>           扣减HP\n'
     + '  → 自动减护甲，鬼修扣灵气，HP≤0昏迷\n'
@@ -1001,7 +1053,7 @@ if (!seal.ext.find('cyws')) {
   // 5.1 .st 命令
   var cmdSt = seal.ext.newCmdItemInfo();
   cmdSt.name = 'st';
-  cmdSt.help = '📋 .st <属性值...> — 录入角色卡\n\n自动识别灵根/种族/境界/职业，并计算HP/PP/DB/ADB等衍生值。\n\n格式：属性名+数值 紧凑排列，元数据关键词自动识别\n例：.st 力量60体质55体型65智力70意志60敏捷75外貌45 灵气70 金 人族 炼气 兵修 战斗:器60\n\n支持的格式：\n· 紧凑：力量60体质55\n· 空格：力量 60 体质 55\n· 英文别名：STR60 DEX75\n· 冒号属性：战斗:器60 知识:草药学5\n· 增量修改：灵气+30（在当前值基础上加30）\n· 武器录入：武器:本命剑:1d8+1d4\n· 元数据关键词：金/木/水/火/土 等13种灵根、人族等9种种族、炼气等6种境界、22种职业\n\n子命令穿透：.st show / .st clear / .st del 等交给核心处理';
+  cmdSt.help = '📋 .st <属性值...> — 录入角色卡\n\n自动识别灵根/种族/境界/职业，并计算HP/PP/DB/ADB等衍生值。\n\n格式：属性名+数值 紧凑排列，元数据关键词自动识别\n例：.st 力量60体质55体型65智力70意志60敏捷75外貌45 灵气70 金 人族 炼气 兵修 战斗:器60\n\n支持的格式：\n· 紧凑：力量60体质55\n· 空格：力量 60 体质 55\n· 英文别名：STR60 DEX75\n· 冒号属性：战斗:器60 知识:草药学5\n· 增量修改：灵气+30（在当前值基础上加30）\n· 武器录入：.录入 武器 本命剑 1d8+1d4（兼容 .st 武器:本命剑:1d8+1d4）\n· 元数据关键词：金/木/水/火/土 等13种灵根、人族等9种种族、炼气等6种境界、22种职业\n\n子命令穿透：.st show / .st clear / .st del 等交给核心处理';
   cmdSt.solve = function (ctx, msg, cmdArgs) {
     if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var text = cmdArgs.getRestArgsFrom(1);
@@ -1016,6 +1068,16 @@ if (!seal.ext.find('cyws')) {
     var parsed = parseStInput(text);
     if (Object.keys(parsed.attrs).length === 0 && Object.keys(parsed.increments).length === 0 && !parsed.spiritRoot && !parsed.race && !parsed.realm && !parsed.profession && !parsed.weapon) {
       return seal.ext.newCmdExecuteResult(false);
+    }
+
+    var weaponOnly = parsed.weapon
+      && Object.keys(parsed.attrs).length === 0
+      && Object.keys(parsed.increments).length === 0
+      && !parsed.spiritRoot && !parsed.race && !parsed.realm && !parsed.profession;
+    if (weaponOnly) {
+      var stWeaponNames = setWeapon(ctx, parsed.weapon);
+      seal.replyToSender(ctx, msg, formatWeaponSetOutput(parsed.weapon, stWeaponNames));
+      return seal.ext.newCmdExecuteResult(true);
     }
 
     // 判断是否为增量修改简洁模式：属性项≤2 且无元数据/武器变更
@@ -1438,7 +1500,7 @@ if (!seal.ext.find('cyws')) {
       var helpMap = {
         '录卡': HELP_ST, '制卡': HELP_ST, '属性': HELP_ST, 'st': HELP_ST,
         '检定': HELP_RA, 'ra': HELP_RA, 'rc': HELP_RA, 'rad': HELP_RA,
-        '战斗': HELP_BATTLE, '攻击': HELP_BATTLE,
+        '战斗': HELP_BATTLE, '攻击': HELP_BATTLE, '武器': HELP_BATTLE,
         '法术': HELP_SPELL, '施法': HELP_SPELL,
         '成长': HELP_GROW, '标记': HELP_GROW,
         '管理': HELP_ADMIN, 'npc': HELP_ADMIN, '状态': HELP_ADMIN
@@ -1480,12 +1542,22 @@ if (!seal.ext.find('cyws')) {
   // 5.5 .录入 命令
   var cmdInput = seal.ext.newCmdItemInfo();
   cmdInput.name = '录入';
-  cmdInput.help = '📝 .录入 <灵根> <种族> <境界> <职业> — 元数据录入\n\n单独修改灵根/种族/境界/职业，不需重新录入全部属性。\n修改后自动重算衍生值。\n\n例：.录入 金 人族 筑基 兵修\n例：.录入 筑基（只改境界）';
+  cmdInput.help = '📝 .录入 <灵根> <种族> <境界> <职业> — 元数据录入\n\n单独修改灵根/种族/境界/职业，不需重新录入全部属性。\n修改后自动重算衍生值。\n\n武器录入：.录入 武器 <名称> <伤害公式>\n\n例：.录入 金 人族 筑基 兵修\n例：.录入 筑基（只改境界）\n例：.录入 武器 本命剑 1d8+1d4';
   cmdInput.solve = function (ctx, msg, cmdArgs) {
     if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var text = cmdArgs.getRestArgsFrom(1);
     if (!text) {
-      seal.replyToSender(ctx, msg, '用法: .录入 <灵根> <种族> <境界> <职业>\n示例: .录入 金 人族 炼气 蛊师');
+      seal.replyToSender(ctx, msg, '用法: .录入 <灵根> <种族> <境界> <职业>\n武器: .录入 武器 <名称> <伤害公式>\n示例: .录入 金 人族 炼气 蛊师\n示例: .录入 武器 本命剑 1d8+1d4');
+      return seal.ext.newCmdExecuteResult(true);
+    }
+    var weapon = parseWeaponInput(text);
+    if (weapon) {
+      var weaponNames = setWeapon(ctx, weapon);
+      seal.replyToSender(ctx, msg, formatWeaponSetOutput(weapon, weaponNames));
+      return seal.ext.newCmdExecuteResult(true);
+    }
+    if (text.trim().split(/\s+/)[0] === '武器') {
+      seal.replyToSender(ctx, msg, '用法: .录入 武器 <名称> <伤害公式>\n例：.录入 武器 本命剑 1d8+1d4');
       return seal.ext.newCmdExecuteResult(true);
     }
     var tokens = text.split(/\s+/);
@@ -2316,6 +2388,36 @@ if (!seal.ext.find('cyws')) {
     return seal.ext.newCmdExecuteResult(true);
   };
   ext.cmdMap['成长'] = cmdGrow;
+
+  // .武器 命令
+  var cmdWeapon = seal.ext.newCmdItemInfo();
+  cmdWeapon.name = '武器';
+  cmdWeapon.help = '⚔️ .武器 list — 查看当前武器列表\n\n别名：.武器list\n录入：.录入 武器 <名称> <伤害公式>\n删除：.武器删除 <名称>\n\n例：.武器 list\n例：.录入 武器 本命剑 1d8+1d4';
+  cmdWeapon.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
+    var sub = (cmdArgs.getArgN(1) || 'list').toLowerCase();
+    if (sub === 'list' || sub === '列表' || sub === 'show' || sub === '查看') {
+      seal.replyToSender(ctx, msg, formatWeaponListOutput(ctx));
+      return seal.ext.newCmdExecuteResult(true);
+    }
+    if (sub === 'help' || sub === '帮助') {
+      seal.replyToSender(ctx, msg, cmdWeapon.help);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+    seal.replyToSender(ctx, msg, '用法: .武器 list\n录入: .录入 武器 <名称> <伤害公式>\n删除: .武器删除 <名称>');
+    return seal.ext.newCmdExecuteResult(true);
+  };
+  ext.cmdMap['武器'] = cmdWeapon;
+
+  var cmdWeaponList = seal.ext.newCmdItemInfo();
+  cmdWeaponList.name = '武器list';
+  cmdWeaponList.help = cmdWeapon.help;
+  cmdWeaponList.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
+    seal.replyToSender(ctx, msg, formatWeaponListOutput(ctx));
+    return seal.ext.newCmdExecuteResult(true);
+  };
+  ext.cmdMap['武器list'] = cmdWeaponList;
 
   // .武器删除 命令
   var cmdWeaponDel = seal.ext.newCmdItemInfo();
