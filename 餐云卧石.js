@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         餐云卧石
 // @author       Asa阿沙、测试感谢：翳
-// @version      1.1.0
+// @version      1.1.1
 // @description  《餐云卧石》BRP修仙规则插件——制卡投掷、技能检定、战斗伤害、灵气管理、法术施放
-// @timestamp    1779801146
+// @timestamp    1783346561
 // @diceRequireVer 1.4.0
 // @license      MIT
 // @homepageURL  https://github.com/hezhaoming095-gif/CanYunWoShi-Trpg-SealCore-JS-Extend
@@ -925,6 +925,8 @@ if (!seal.ext.find('cyws')) {
     + '  → 格式：.ra 闪避 | .ra 闪避 50 | .ra侦查40 | .ra 侦查+10 | .ra100\n'
     + '.rc <属性名>           属性检定\n'
     + '  → 用属性值作为成功率，格式与.ra相同\n'
+    + '.rad <娱乐条件>        娱乐检定（固定50%，不读卡不成长）\n'
+    + '  → 例：.rad猫是傻子吗\n'
     + '.功法 <模式> <技能名>   功法检定\n'
     + '  → 模式：攻击(武器骰翻倍)/防御(抵消15伤害)/干扰(附带攻击)\n'
     + '  → 例：.功法 攻击 战斗:器';
@@ -1331,7 +1333,37 @@ if (!seal.ext.find('cyws')) {
   };
   ext.cmdMap['ra'] = cmdRa;
 
-  // 5.3 .rc 命令
+  // 5.3 .rad 命令：纯娱乐50%检定，不读写角色卡，不参与成长
+  var cmdRad = seal.ext.newCmdItemInfo();
+  cmdRad.name = 'rad';
+  cmdRad.help = '🎲 .rad <文本条件> — 临时检定\n\n固定以50%为成功率掷1D100，只用于临时鉴定。\n不会读取角色卡，不会标记成长，不会修改任何数值。\n\n例：.rad猫是好人吗\n例：.rad 今天能准时下班吗';
+  cmdRad.solve = function (ctx, msg, cmdArgs) {
+    if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
+    var question = (cmdArgs.getRestArgsFrom(1) || '').trim();
+    if (!question) {
+      seal.replyToSender(ctx, msg, '用法: .rad <娱乐条件>\n例：.rad小李是直男吗');
+      return seal.ext.newCmdExecuteResult(true);
+    }
+
+    var target = 50;
+    var rollResult = roll(ctx, '1d100');
+    var judge = judgeSuccess(rollResult, target);
+    var hardVal = Math.floor(target / 2);
+    var specialVal = Math.floor(target / 5);
+    var levelEmoji = { '大成功': '✅', '特殊成功': '✅', '困难成功': '✅', '成功': '✅', '失败': '❌', '大失败': '💥' };
+
+    var output = '🎲 餐云卧石娱乐检定\n━━━━━━━━━━━━━━\n';
+    output += '条件：' + question + '\n';
+    output += '成功率：' + target + '%（成功/困难/特殊：' + target + '/' + hardVal + '/' + specialVal + '）\n';
+    output += '🎲 1D100 = ' + rollResult + '\n';
+    output += (levelEmoji[judge.level] || '') + ' ' + judge.level;
+    output += '\n※ 娱乐检定不读取角色卡，不记录成长。';
+    seal.replyToSender(ctx, msg, output);
+    return seal.ext.newCmdExecuteResult(true);
+  };
+  ext.cmdMap['rad'] = cmdRad;
+
+  // 5.4 .rc 命令
   var cmdRc = seal.ext.newCmdItemInfo();
   cmdRc.name = 'rc';
   cmdRc.help = '🎲 .rc <属性名> — 属性检定\n\n用属性值作为成功率进行D100检定（力量80即80%成功率）。\n成功等级与.ra相同。\n支持代骰：.rc 力量 @A玩家\n支持格式：\n· .rc 力量       从卡片读取\n· .rc 力量 80    手动指定\n· .rc力量80      无空格紧凑格式\n· .rc 力量+10    临时加值\n\n例：.rc 力量  .rc 意志  .rc 力量 80';
@@ -1405,7 +1437,7 @@ if (!seal.ext.find('cyws')) {
       var subCat = cmdArgs.getArgN(2);
       var helpMap = {
         '录卡': HELP_ST, '制卡': HELP_ST, '属性': HELP_ST, 'st': HELP_ST,
-        '检定': HELP_RA, 'ra': HELP_RA, 'rc': HELP_RA,
+        '检定': HELP_RA, 'ra': HELP_RA, 'rc': HELP_RA, 'rad': HELP_RA,
         '战斗': HELP_BATTLE, '攻击': HELP_BATTLE,
         '法术': HELP_SPELL, '施法': HELP_SPELL,
         '成长': HELP_GROW, '标记': HELP_GROW,
