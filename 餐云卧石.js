@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         餐云卧石
 // @author       Asa阿沙、测试感谢：翳
-// @version      1.1.1
+// @version      1.14
 // @description  《餐云卧石》BRP修仙规则插件——制卡投掷、技能检定、战斗伤害、灵气管理、法术施放
-// @timestamp    1783346561
+// @timestamp    1784016657
 // @diceRequireVer 1.4.0
 // @license      MIT
 // @homepageURL  https://github.com/hezhaoming095-gif/CanYunWoShi-Trpg-SealCore-JS-Extend
@@ -18,13 +18,13 @@ var template = {
   name: "cyws",
   fullName: "餐云卧石",
   authors: ["Asa阿沙、测试感谢：翳 "],
-  version: "1.1.3",
-  updatedTime: "20260520",
+  version: "1.14",
+  updatedTime: "20260714",
   templateVer: "1.0",
 
   setConfig: {
     diceSides: 100,
-    enableTip: "🏔️ 已切换至《餐云卧石》规则\n输入 .餐云 help 查看指令帮助。该版本为测试版，有bug/建议请联系2184927226反馈",
+    enableTip: "🏔️ 已切换至《餐云卧石》规则\n输入 .餐云 help 查看指令帮助。该版本为测试版，有bug/建议请加入群组664527360反馈",
     keys: ["cyws", "餐云卧石", "餐云"],
     relatedExt: ["cyws"]
   },
@@ -115,7 +115,7 @@ try {
 // =============================================
 
 if (!seal.ext.find('cyws')) {
-  var ext = seal.ext.new('cyws', 'Asa阿沙', '1.0.3');
+  var ext = seal.ext.new('cyws', 'Asa阿沙', '1.14');
   // 仅在 .set cyws 通过模板 relatedExt 激活，避免污染其他房规命令。
   ext.autoActive = false;
   seal.ext.register(ext);
@@ -445,6 +445,68 @@ if (!seal.ext.find('cyws')) {
   }
   function setMeta(ctx, meta) {
     storageSetJSON(charKey(ctx, 'meta'), meta);
+  }
+  // 武器独立存储（跨群共享，userId 维度）
+  // 设计原因：海豹核心 COC 规则下武器随角色卡走，不应分群隔离
+  // v1.1.3 之前存于 meta.weapons（带群号）→ 跨群读不到
+  // 读取时若新位置为空，自动从老位置（当前群 meta.weapons）迁移一次
+  function weaponsKey(ctx) {
+    return 'weapons_' + ctx.player.userId;
+  }
+  function getWeapons(ctx) {
+    var w = storageGetJSON(weaponsKey(ctx), null);
+    if (w !== null && Object.keys(w).length > 0) return w;
+    // 兼容迁移：扫当前群 meta.weapons
+    var meta = getMeta(ctx);
+    var old = meta.weapons || {};
+    if (Object.keys(old).length > 0) {
+      storageSetJSON(weaponsKey(ctx), old);
+      delete meta.weapons;
+      setMeta(ctx, meta);
+      return old;
+    }
+    return {};
+  }
+  function setWeapons(ctx, weapons) {
+    storageSetJSON(weaponsKey(ctx), weapons || {});
+    // 顺手清掉当前群 meta.weapons，避免双写漂移
+    var meta = getMeta(ctx);
+    if (meta.weapons) {
+      delete meta.weapons;
+      setMeta(ctx, meta);
+    }
+  }
+  // 当前武器（"主手武器"）—— 跨群共享，跟角色 userId 走
+  // v1.1.4 新增：玩家可 .武器 set 切换
+  // 未设置时回退到 weaponKeys[0]（v1.1.3 行为，向后兼容）
+  function currentWeaponKey(ctx) {
+    return 'currentWeapon_' + ctx.player.userId;
+  }
+  function getCurrentWeapon(ctx) {
+    var n = storageGetJSON(currentWeaponKey(ctx), null);
+    return (typeof n === 'string' && n.length > 0) ? n : null;
+  }
+  function setCurrentWeapon(ctx, name) {
+    storageSetJSON(currentWeaponKey(ctx), name || '');
+  }
+  function clearCurrentWeapon(ctx) {
+    ext.storageSet(currentWeaponKey(ctx), '');
+  }
+  // 解析"用哪把武器"：传入手动指定的武器名 → 验证存在；否则用 currentWeapon → 回退到第一把
+  // 返回 { name, formula } 或 null（没武器）
+  function resolveWeapon(mctx, requestedName) {
+    var weapons = getWeapons(mctx);
+    var keys = Object.keys(weapons);
+    if (keys.length === 0) return null;
+    if (requestedName) {
+      if (!weapons[requestedName]) return { error: '未找到武器: ' + requestedName };
+      return { name: requestedName, formula: weapons[requestedName] };
+    }
+    var cur = getCurrentWeapon(mctx);
+    if (cur && weapons[cur]) return { name: cur, formula: weapons[cur] };
+    // 回退：第一把
+    var first = keys[0];
+    return { name: first, formula: weapons[first] };
   }
   function getSpells(ctx) {
     return storageGetJSON(charKey(ctx, 'spells'), { list: [], pointsUsed: 0 });
@@ -892,33 +954,41 @@ if (!seal.ext.find('cyws')) {
   }
 
   function setWeapon(ctx, weapon) {
-    var meta = getMeta(ctx);
-    meta.weapons = meta.weapons || {};
-    meta.weapons[weapon.name] = weapon.formula;
-    setMeta(ctx, meta);
-    return Object.keys(meta.weapons);
+    var weapons = getWeapons(ctx);
+    var isFirst = Object.keys(weapons).length === 0;
+    weapons[weapon.name] = weapon.formula;
+    setWeapons(ctx, weapons);
+    // 第一次录入武器时，自动设为"当前武器"——避免老用户升级后攻击空转
+    if (isFirst) {
+      setCurrentWeapon(ctx, weapon.name);
+    }
+    return Object.keys(weapons);
   }
 
   function formatWeaponSetOutput(weapon, weaponNames) {
     var output = '✓ 武器已录入：' + weapon.name + '（' + weapon.formula + '）';
     if (weaponNames && weaponNames.length > 1) {
-      output += '\n当前武器：' + weaponNames.join('、');
+      output += '\n所有武器：' + weaponNames.join('、');
+      output += '\n切换主手：.武器 set <名称>';
     }
     return output;
   }
 
   function formatWeaponListOutput(ctx) {
-    var meta = getMeta(ctx);
-    var weapons = meta.weapons || {};
+    var weapons = getWeapons(ctx);
     var names = Object.keys(weapons);
     if (names.length === 0) {
       return '当前没有录入任何武器\n录入：.录入 武器 <名称> <伤害公式>\n例：.录入 武器 本命剑 1d8+1d4';
     }
 
-    var output = '⚔️ 当前武器列表\n━━━━━━━━━━━━━━━';
+    var cur = getCurrentWeapon(ctx) || names[0];
+    var output = '⚔️ 当前武器列表（▶ = 主手）\n━━━━━━━━━━━━━━━';
     for (var i = 0; i < names.length; i++) {
-      output += '\n' + (i + 1) + '. ' + names[i] + '（' + weapons[names[i]] + '）';
+      var mark = (names[i] === cur) ? '▶ ' : '  ';
+      output += '\n' + mark + (i + 1) + '. ' + names[i] + '（' + weapons[names[i]] + '）';
     }
+    output += '\n━━━━━━━━━━━━━━━';
+    output += '\n切换主手：.武器 set <名称>';
     return output;
   }
 
@@ -975,8 +1045,9 @@ if (!seal.ext.find('cyws')) {
     + '  → 格式：.ra 闪避 | .ra 闪避 50 | .ra侦查40 | .ra 侦查+10 | .ra100\n'
     + '.rc <属性名>           属性检定\n'
     + '  → 用属性值作为成功率，格式与.ra相同\n'
-    + '.rad <娱乐条件>        娱乐检定（固定50%，不读卡不成长）\n'
-    + '  → 例：.rad猫是傻子吗\n'
+    + '.鉴定 <xx是否为xx>      临时检定（.鉴定 ≡ coc 规则下的 .rad）\n'
+    + '  → 固定 50% 成功率，不读卡不成长\n'
+    + '  → 例：.鉴定 小明是否为好人\n'
     + '.功法 <模式> <技能名>   功法检定\n'
     + '  → 模式：攻击(武器骰翻倍)/防御(抵消15伤害)/干扰(附带攻击)\n'
     + '  → 例：.功法 攻击 战斗:器';
@@ -1200,8 +1271,7 @@ if (!seal.ext.find('cyws')) {
     if (parsed.realm) meta.lastRealm = parsed.realm;
     if (parsed.profession) meta.lastProfession = parsed.profession;
     if (parsed.weapon) {
-      meta.weapons = meta.weapons || {};
-      meta.weapons[parsed.weapon.name] = parsed.weapon.formula;
+      setWeapon(ctx, parsed.weapon);
     }
     setMeta(ctx, meta);
 
@@ -1267,6 +1337,7 @@ if (!seal.ext.find('cyws')) {
 
     if (parsed.weapon) {
       output += '\n⚔️ 已录入武器：' + parsed.weapon.name + ' (' + parsed.weapon.formula + ')';
+      output += '\n切换主手武器：.武器 set <名称>';
     }
 
     output += '\n━━━━━━━━━━━━━━━━━━━━━━\n自动计算技能初始值：';
@@ -1293,6 +1364,19 @@ if (!seal.ext.find('cyws')) {
     }
 
     output += '\n━━━━━━━━━━━━━━━━━━━━━━\n💡 录入完成后同步名片：.sn cyws';
+
+    // 核心字段缺失提醒（灵根/种族/境界/职业）
+    var missingFields = [];
+    if (!getStr(ctx, '灵根', '')) missingFields.push('灵根');
+    if (!getStr(ctx, '种族', '')) missingFields.push('种族');
+    if (!getStr(ctx, '境界', '')) missingFields.push('境界');
+    if (!getStr(ctx, '职业', '')) missingFields.push('职业');
+    if (missingFields.length > 0) {
+      output += '\n━━━━━━━━━━━━━━━━━━━━━━\n';
+      output += '⚠️ 还有核心字段未录入：' + missingFields.join(' / ') + '\n';
+      output += '💡 用 .录入 补录：.录入 ' + missingFields.map(function (f) { return f + '=<值>'; }).join(' ') + '\n';
+      output += '   例：.录入 灵根=金 种族=人族 境界=炼气 职业=蛊师';
+    }
 
     seal.replyToSender(ctx, msg, output);
     return seal.ext.newCmdExecuteResult(true);
@@ -1395,15 +1479,18 @@ if (!seal.ext.find('cyws')) {
   };
   ext.cmdMap['ra'] = cmdRa;
 
-  // 5.3 .rad 命令：纯娱乐50%检定，不读写角色卡，不参与成长
-  var cmdRad = seal.ext.newCmdItemInfo();
-  cmdRad.name = 'rad';
-  cmdRad.help = '🎲 .rad <文本条件> — 临时检定\n\n固定以50%为成功率掷1D100，只用于临时鉴定。\n不会读取角色卡，不会标记成长，不会修改任何数值。\n\n例：.rad猫是好人吗\n例：.rad 今天能准时下班吗';
-  cmdRad.solve = function (ctx, msg, cmdArgs) {
+  // 5.3 .鉴定 命令：cyws 专属临时检定
+  // 命名变更历史：原本叫 .rad，但 .rad 是海豹核心 COC 自带命令，cyws 占用会让其他规则玩家"无响应"（return false 在已占位命令键不回退到原生）。
+  // 现在改名为 .鉴定——.rad 完全交给海豹原生处理，cyws 玩家用 .鉴定 享受同等能力。
+  // 详见维护规范 §3.4.1 决策矩阵的"已落地改造案例"。
+  var cmdIdentify = seal.ext.newCmdItemInfo();
+  cmdIdentify.name = '鉴定';
+  cmdIdentify.help = '🎲 .鉴定 <xx是否为xx> — 临时检定\n\n固定以50%为成功率掷1D100，只用于临时鉴定。\n不会读取角色卡，不会标记成长，不会修改任何数值。\n\n例：.鉴定 小明是否为好人\n例：.鉴定 猫是傻子吗\n例：.鉴定 今天能准时下班吗\n\n注意：原 .rad 改名而来，coc 等其他房规下用海豹核心的 .rad。';
+  cmdIdentify.solve = function (ctx, msg, cmdArgs) {
     if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var question = (cmdArgs.getRestArgsFrom(1) || '').trim();
     if (!question) {
-      seal.replyToSender(ctx, msg, '用法: .rad <娱乐条件>\n例：.rad小李是直男吗');
+      seal.replyToSender(ctx, msg, '用法: .鉴定 <xx是否为xx>\n例：.鉴定 小明是否为好人');
       return seal.ext.newCmdExecuteResult(true);
     }
 
@@ -1414,16 +1501,16 @@ if (!seal.ext.find('cyws')) {
     var specialVal = Math.floor(target / 5);
     var levelEmoji = { '大成功': '✅', '特殊成功': '✅', '困难成功': '✅', '成功': '✅', '失败': '❌', '大失败': '💥' };
 
-    var output = '🎲 餐云卧石娱乐检定\n━━━━━━━━━━━━━━\n';
+    var output = '🎲 餐云卧石临时检定\n━━━━━━━━━━━━━━\n';
     output += '条件：' + question + '\n';
     output += '成功率：' + target + '%（成功/困难/特殊：' + target + '/' + hardVal + '/' + specialVal + '）\n';
     output += '🎲 1D100 = ' + rollResult + '\n';
     output += (levelEmoji[judge.level] || '') + ' ' + judge.level;
-    output += '\n※ 娱乐检定不读取角色卡，不记录成长。';
+    output += '\n※ 临时检定不读取角色卡，不记录成长。';
     seal.replyToSender(ctx, msg, output);
     return seal.ext.newCmdExecuteResult(true);
   };
-  ext.cmdMap['rad'] = cmdRad;
+  ext.cmdMap['鉴定'] = cmdIdentify;
 
   // 5.4 .rc 命令
   var cmdRc = seal.ext.newCmdItemInfo();
@@ -1605,7 +1692,7 @@ if (!seal.ext.find('cyws')) {
 
   // 攻击伤害计算辅助函数
   // mctx: 被代骰者的ctx（读取角色卡）  replyCtx: 原始ctx（发送消息）
-  function handleAttackDamage(mctx, replyCtx, msg, output, resolvedSkill, skillValue, judge) {
+  function handleAttackDamage(mctx, replyCtx, msg, output, resolvedSkill, skillValue, judge, weaponOverride) {
     if (judge.level === '失败' || judge.level === '大失败') {
       output += '━━━━━━━━━━━━━━━\n攻击未命中';
       if (judge.level === '大失败') output += '\n💀 大失败！由KP裁定意外效果';
@@ -1616,14 +1703,17 @@ if (!seal.ext.find('cyws')) {
     output += '━━━━━━━━━━━━━━━\n伤害计算：\n';
     var weaponDmg = 0;
     var weaponDetail = '';
-    var meta = getMeta(mctx);
-    var weapons = meta.weapons || {};
-    var weaponKeys = Object.keys(weapons);
     var isMaximized = (judge.level === '大成功');
 
-    if (weaponKeys.length > 0) {
-      var wName = weaponKeys[0];
-      var wFormula = weapons[wName];
+    // 用哪把武器：参数 > currentWeapon > 武器列表第一把（向后兼容）
+    var resolved = resolveWeapon(mctx, weaponOverride || null);
+    if (resolved && resolved.error) {
+      seal.replyToSender(replyCtx, msg, '⚠️ ' + resolved.error);
+      return seal.ext.newCmdExecuteResult(true);
+    }
+    if (resolved) {
+      var wName = resolved.name;
+      var wFormula = resolved.formula;
       if (isMaximized) {
         var maxResult = maximizeDiceExpr(wFormula);
         weaponDmg = maxResult.total;
@@ -1678,13 +1768,23 @@ if (!seal.ext.find('cyws')) {
   // 5.7 .攻击 命令
   var cmdAttack = seal.ext.newCmdItemInfo();
   cmdAttack.name = '攻击';
-  cmdAttack.help = '⚔️ .攻击 [技能名] — 攻击检定+伤害计算\n\n先做技能检定(1D100)，命中后自动计算伤害：\n· 武器伤害骰（从.st录入的武器读取）\n· + DB（力量+体型查表）\n· + ADB（仅灵气>HP时附加）\n\n大成功：武器伤害骰取最大值（DB/ADB不翻倍）\n大失败：提示由KP裁定意外效果\n\n默认技能：战斗:器\n支持代骰：.攻击 @A玩家\n支持格式：\n· .攻击              默认技能\n· .攻击 战斗:体      指定技能\n· .攻击 战斗:器 60   手动指定技能值\n· .攻击 60           默认技能+手动值\n· .攻击战斗:器+10    紧凑格式+临时加值\n\n例：.攻击  .攻击 战斗:体  .攻击 60';
+  cmdAttack.help = '⚔️ .攻击 [技能名] [武器名] — 攻击检定+伤害计算\n\n先做技能检定(1D100)，命中后自动计算伤害：\n· 武器伤害骰（默认=主手武器，可用 武器名 参数指定其他）\n· + DB（力量+体型查表）\n· + ADB（仅灵气>HP时附加）\n\n大成功：武器伤害骰取最大值（DB/ADB不翻倍）\n大失败：提示由KP裁定意外效果\n\n默认技能：战斗:器\n默认武器：.武器 set 设定的当前武器（首次录入时自动设置）\n支持代骰：.攻击 @A玩家\n支持格式：\n· .攻击              默认技能+默认武器\n· .攻击 战斗:体      指定技能+默认武器\n· .攻击 本命剑       默认技能+指定武器\n· .攻击 战斗:体 本命剑  指定技能+指定武器\n· .攻击 战斗:器 60   手动指定技能值\n· .攻击 60           默认技能+手动值\n· .攻击战斗:器+10    紧凑格式+临时加值\n\n例：.攻击  .攻击 战斗:体  .攻击 本命剑  .攻击 60';
   cmdAttack.allowDelegate = true;
   cmdAttack.solve = function (ctx, msg, cmdArgs) {
     if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var mctx = seal.getCtxProxyFirst(ctx, cmdArgs);
     var arg1 = cmdArgs.getArgN(1) || '';
     var arg2 = cmdArgs.getArgN(2) || '';
+
+    // 武器名探测：在已录入武器列表里的 arg 当作 weaponOverride
+    // 让 .攻击 本命剑 / .攻击 战斗:体 本命剑 这种用法直接走到武器分支
+    var weaponsList = getWeapons(mctx);
+    var weaponOverride = '';
+    if (weaponsList[arg1] && !/^[+-]?\d+$/.test(arg1)) {
+      weaponOverride = arg1;
+    } else if (weaponsList[arg2] && !/^[+-]?\d+$/.test(arg2)) {
+      weaponOverride = arg2;
+    }
 
     // 纯数值格式：.攻击 60 → 默认技能+手动值
     if (/^\d+$/.test(arg1) && !arg2) {
@@ -1696,10 +1796,15 @@ if (!seal.ext.find('cyws')) {
       var output60 = '⚔️ 攻击检定\n━━━━━━━━━━━━━━━\n';
       output60 += '角色：' + mctx.player.name + ' | 技能：' + resolvedSkill60 + ' (' + skillValue60 + '%) [手动]\n';
       output60 += '🎲 1D100 = ' + rollResult60 + ' → ' + judge60.level + '\n';
-      return handleAttackDamage(mctx, ctx, msg, output60, resolvedSkill60, skillValue60, judge60);
+      return handleAttackDamage(mctx, ctx, msg, output60, resolvedSkill60, skillValue60, judge60, weaponOverride);
     }
 
     var parsed = parseRaInput(cmdArgs);
+    // 如果 arg1/arg2 是武器名 → parseRaInput 会误识为 skillName（技能值=0 → 必败）
+    // 这里把误识别的 skillName 抹掉，让默认技能"战斗:器"接管
+    if (weaponOverride && (weaponOverride === arg1 || weaponOverride === arg2)) {
+      parsed.skillName = null;
+    }
     var skillName = parsed.skillName || '战斗:器';
     var baseValue = parsed.baseValue;
     var bonus = parsed.bonus;
@@ -1750,7 +1855,7 @@ if (!seal.ext.find('cyws')) {
       setMeta(mctx, atkMeta);
     }
 
-    return handleAttackDamage(mctx, ctx, msg, output, resolvedSkill, skillValue, judge);
+    return handleAttackDamage(mctx, ctx, msg, output, resolvedSkill, skillValue, judge, weaponOverride);
   };
   ext.cmdMap['攻击'] = cmdAttack;
 
@@ -2392,7 +2497,7 @@ if (!seal.ext.find('cyws')) {
   // .武器 命令
   var cmdWeapon = seal.ext.newCmdItemInfo();
   cmdWeapon.name = '武器';
-  cmdWeapon.help = '⚔️ .武器 list — 查看当前武器列表\n\n别名：.武器list\n录入：.录入 武器 <名称> <伤害公式>\n删除：.武器删除 <名称>\n\n例：.武器 list\n例：.录入 武器 本命剑 1d8+1d4';
+  cmdWeapon.help = '⚔️ .武器 [list/set/clear] — 武器管理\n\n子命令：\n· .武器 list — 查看武器列表（▶ 标记主手）\n· .武器 set <名称> — 切换主手武器（.攻击 默认使用）\n· .武器 clear — 清除主手设置（回退到列表第一把）\n\n录入：.录入 武器 <名称> <伤害公式>\n删除：.武器删除 <名称>\n\n例：.武器 list\n例：.武器 set 本命剑\n例：.录入 武器 本命剑 1d8+1d4';
   cmdWeapon.solve = function (ctx, msg, cmdArgs) {
     if (!isCywsMode(ctx)) { return seal.ext.newCmdExecuteResult(false); }
     var sub = (cmdArgs.getArgN(1) || 'list').toLowerCase();
@@ -2400,11 +2505,37 @@ if (!seal.ext.find('cyws')) {
       seal.replyToSender(ctx, msg, formatWeaponListOutput(ctx));
       return seal.ext.newCmdExecuteResult(true);
     }
+    if (sub === 'set' || sub === '切换' || sub === '主手') {
+      var target = cmdArgs.getArgN(2);
+      if (!target) {
+        seal.replyToSender(ctx, msg, '用法: .武器 set <武器名>\n当前主手：' + (getCurrentWeapon(ctx) || '（未设置，回退到第一把）'));
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      var weapons = getWeapons(ctx);
+      if (!weapons[target]) {
+        var wKeys = Object.keys(weapons);
+        if (wKeys.length === 0) {
+          seal.replyToSender(ctx, msg, '⚠️ 当前没有录入任何武器\n请先 .录入 武器 <名称> <伤害公式>');
+        } else {
+          seal.replyToSender(ctx, msg, '⚠️ 未找到武器: ' + target + '\n已有武器：' + wKeys.join('、'));
+        }
+        return seal.ext.newCmdExecuteResult(true);
+      }
+      setCurrentWeapon(ctx, target);
+      seal.replyToSender(ctx, msg, '✓ 主手武器已切换为：' + target + '\n下次 .攻击 默认使用此武器');
+      return seal.ext.newCmdExecuteResult(true);
+    }
+    if (sub === 'clear' || sub === '清除') {
+      clearCurrentWeapon(ctx);
+      var firstKey = Object.keys(getWeapons(ctx))[0] || '（无）';
+      seal.replyToSender(ctx, msg, '✓ 已清除主手设置\n回退到：' + firstKey + '（列表第一把）');
+      return seal.ext.newCmdExecuteResult(true);
+    }
     if (sub === 'help' || sub === '帮助') {
       seal.replyToSender(ctx, msg, cmdWeapon.help);
       return seal.ext.newCmdExecuteResult(true);
     }
-    seal.replyToSender(ctx, msg, '用法: .武器 list\n录入: .录入 武器 <名称> <伤害公式>\n删除: .武器删除 <名称>');
+    seal.replyToSender(ctx, msg, '用法: .武器 list/set/clear\n录入: .录入 武器 <名称> <伤害公式>\n删除: .武器删除 <名称>');
     return seal.ext.newCmdExecuteResult(true);
   };
   ext.cmdMap['武器'] = cmdWeapon;
@@ -2430,9 +2561,9 @@ if (!seal.ext.find('cyws')) {
       seal.replyToSender(ctx, msg, '用法: .武器删除 <武器名>\n使用 .st 查看 当前武器列表');
       return seal.ext.newCmdExecuteResult(true);
     }
-    var meta = getMeta(ctx);
-    if (!meta.weapons || !meta.weapons[wName]) {
-      var wKeys = meta.weapons ? Object.keys(meta.weapons) : [];
+    var weapons = getWeapons(ctx);
+    if (!weapons || !weapons[wName]) {
+      var wKeys = weapons ? Object.keys(weapons) : [];
       if (wKeys.length === 0) {
         seal.replyToSender(ctx, msg, '⚠️ 当前没有录入任何武器');
       } else {
@@ -2440,9 +2571,13 @@ if (!seal.ext.find('cyws')) {
       }
       return seal.ext.newCmdExecuteResult(true);
     }
-    var removedFormula = meta.weapons[wName];
-    delete meta.weapons[wName];
-    setMeta(ctx, meta);
+    var removedFormula = weapons[wName];
+    delete weapons[wName];
+    setWeapons(ctx, weapons);
+    // 如果删的是主手武器 → 联动清掉 currentWeapon（让回退机制接管）
+    if (getCurrentWeapon(ctx) === wName) {
+      clearCurrentWeapon(ctx);
+    }
     seal.replyToSender(ctx, msg, '✓ 已删除武器：' + wName + ' (' + removedFormula + ')');
     return seal.ext.newCmdExecuteResult(true);
   };
